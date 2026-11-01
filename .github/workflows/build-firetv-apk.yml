@@ -10,7 +10,7 @@ on:
 jobs:
   build-apk:
     name: Assemble Full Beta APKs (Fire TV armeabi-v7a & arm64-v8a)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -22,17 +22,20 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+      - name: Normalize gradlew line endings and permissions
+        run: |
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
 
       - name: Build Full Beta APKs
         env:
           CI_USE_DEBUG_SIGNING: "true"
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
-        run: ./gradlew :app:assembleFullBeta --stacktrace
+        run: ./gradlew :app:assembleFullBeta --no-daemon --stacktrace
 
       - name: Upload Fire TV 32-bit APK (Fire Stick 1GB / armeabi-v7a)
         uses: actions/upload-artifact@v4
