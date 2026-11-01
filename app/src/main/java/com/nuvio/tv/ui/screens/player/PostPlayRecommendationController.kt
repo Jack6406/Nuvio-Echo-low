@@ -113,7 +113,7 @@ internal class PostPlayRecommendationController(
     private val recommendationCache = mutableMapOf<Int, PostPlayRecommendation>()
     private var recommendationLoadAttempted = false
     private val postPlayTrailerPlaybackEnabled = AppFeaturePolicy.inAppTrailerPlaybackEnabled
-    private var autoPlayTrailerEnabled = postPlayTrailerPlaybackEnabled
+    private var autoPlayTrailerEnabled = false
     private var lastSnapshot: PlaybackSnapshot? = null
     private var lastPlaybackIdentity: PlaybackIdentity? = null
 
@@ -216,7 +216,7 @@ internal class PostPlayRecommendationController(
         returnToPlayerAnimationJob?.cancel()
         returnToPlayerAnimationJob = null
         recommendationLoadAttempted = false
-        autoPlayTrailerEnabled = postPlayTrailerPlaybackEnabled
+        autoPlayTrailerEnabled = false
         if (_uiState.value.isTrailerPlaying) {
             trailerPlayerPool.stop()
         }
@@ -378,9 +378,7 @@ internal class PostPlayRecommendationController(
             // Propagate rating order to UI state.
             val mdbSettings = mdbListSettingsDataStore.settings.first()
             _uiState.update { it.copy(mdbListRatingOrder = mdbSettings.enabledRatingOrder()) }
-            autoPlayTrailerEnabled = postPlayTrailerPlaybackEnabled && runCatching {
-                trailerSettingsDataStore.settings.first().enabled
-            }.getOrDefault(true)
+            autoPlayTrailerEnabled = false
             candidates.indices.forEach(::startCandidateResolution)
             val resolvedCandidate = awaitCandidateResolution(0)
             if (resolvedCandidate == null) {

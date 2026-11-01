@@ -50,7 +50,13 @@ internal suspend fun sampleArtworkPalette(context: Context, url: String): List<I
 }
 
 private val tintCache = object : LinkedHashMap<String, Color>(64, 0.75f, true) {
-    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Color>?) = size > 120
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Color>?) =
+        size > if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) 32 else 120
+}
+
+internal fun clearAmbientTintCache() {
+    synchronized(tintCache) { tintCache.clear() }
+    synchronized(maskCache) { maskCache.clear() }
 }
 
 /**

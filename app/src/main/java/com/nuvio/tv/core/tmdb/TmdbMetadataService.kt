@@ -62,6 +62,90 @@ class TmdbMetadataService(
     private val entityHeaderCache = ConcurrentHashMap<String, TmdbEntityHeader>()
     private val entityRailCache = ConcurrentHashMap<String, List<MetaPreview>>()
     private val entityBrowseCache = ConcurrentHashMap<String, TmdbEntityBrowseData>()
+    private val backdropOptionsCache = ConcurrentHashMap<String, List<TmdbBackdropOption>>()
+
+    /**
+     * Fetches all available backdrop artworks from TMDB for the Backdrop Picker on the details page.
+     * Prioritizes textless (clean) backdrops and the user's preferred language, sorted by vote score and resolution.
+     */
+    suspend fun fetchBackdropOptions(
+        tmdbId: String,
+        contentType: ContentType,
+        language: String = "en",
+        maxItems: Int = 36
+    ): List<TmdbBackdropOption> = withContext(ioDispatcher) {
+        val normalizedLanguage = normalizeTmdbLanguage(language)
+        val cacheKey = "$tmdbId:${contentType.name}:$normalizedLanguage:backdrops"
+        backdropOptionsCache[cacheKey]?.let { return@withContext it }
+
+        val numericId = tmdbId.toIntOrNull() ?: return@withContext emptyList()
+        val langShort = normalizedLanguage.substringBefore("-")
+        val includeImageLanguage = buildString {
+            append(langShort)
+            append(",")
+            append(normalizedLanguage)
+            append(",en,null")
+        }
+        val isTv = contentType == ContentType.SERIES || contentType == ContentType.TV
+        val images = runCatching {
+            if (isTv) {
+                tmdbApi.getTvImages(numericId, TMDB_API_KEY, includeImageLanguage).body()
+            } else {
+                tmdbApi.getMovieImages(numericId, TMDB_API_KEY, includeImageLanguage).body()
+            }
+        }.getOrNull() ?: return@withContext emptyList()
+
+        val rawBackdrops = images.backdrops.orEmpty()
+        if (rawBackdrops.isEmpty()) return@withContext emptyList()
+
+        val sorted = rawBackdrops
+            .filter { !it.filePath.isNullOrBlank() }
+            .distinctBy { it.filePath }
+            .sortedWith(
+                compareByDescending<TmdbImage> { it.iso6391 == null }
+                    .thenByDescending { it.iso6391 == langShort }
+                    .thenByDescending { it.iso6391 == "en" }
+                    .thenByDescending { (it.voteCount ?: 0) >= 2 }
+                    .thenByDescending { it.voteAverage ?: 0.0 }
+                    .thenByDescending { it.width ?: 0 }
+            )
+            .take(maxItems)
+
+        val options = sorted.mapNotNull { img ->
+            val fullUrl = buildImageUrl(img.filePath, size = "w1280") ?: return@mapNotNull null
+            val previewUrl = buildImageUrl(img.filePath, size = "w780") ?: fullUrl
+            val resLabel = if (img.width != null && img.height != null && img.width > 0 && img.height > 0) {
+                when {
+                    img.width >= 3840 -> "4K (${img.width}×${img.height})"
+                    img.width >= 1920 -> "1080p (${img.width}×${img.height})"
+                    else -> "${img.width}×${img.height}"
+                }
+            } else null
+            val langLabel = when (val code = img.iso6391?.trim()?.takeIf { it.isNotEmpty() }) {
+                null -> "Clean (No Text)"
+                else -> code.uppercase(Locale.US)
+            }
+            TmdbBackdropOption(
+                url = fullUrl,
+                previewUrl = previewUrl,
+                provider = "TMDB",
+                languageLabel = langLabel,
+                resolutionLabel = resLabel,
+                voteAverage = img.voteAverage
+            )
+        }
+        if (options.isNotEmpty()) {
+            backdropOptionsCache[cacheKey] = options
+        }
+        options
+    }
+
+    fun trimMemoryCaches() {
+        backdropOptionsCache.clear()
+        moreLikeThisCache.clear()
+        entityRailCache.clear()
+        entityBrowseCache.clear()
+    }
 
     /**
      * Age rating chosen the same way as the details page badge, plus every country's rating-board
@@ -1874,4 +1958,14 @@ internal fun resolveDisplayLabel(
 data class TmdbRatingInfo(
     val rating: String?,
     val descriptors: List<String>
+)
+
+
+data class TmdbBackdropOption(
+    val url: String,
+    val previewUrl: String,
+    val provider: String,
+    val languageLabel: String? = null,
+    val resolutionLabel: String? = null,
+    val voteAverage: Double? = null
 )

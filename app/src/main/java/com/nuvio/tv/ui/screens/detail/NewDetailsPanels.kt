@@ -1100,3 +1100,531 @@ internal fun mergeCredits(
     val crew = leads + credits.crew.filter { key(it.name) !in leadNames }
     return cast to crew
 }
+
+
+@Composable
+internal fun BackdropPickerPanel(
+    meta: Meta,
+    pickerState: BackdropPickerState,
+    currentBackdropUrl: String?,
+    hasCustomOverride: Boolean,
+    onSelectBackdrop: (String?) -> Unit,
+    onClose: () -> Unit
+) {
+    val context = LocalContext.current
+    var tab by remember { mutableStateOf(0) } // 0 = All, 1 = TMDB, 2 = Other Providers
+    var focusedCandidate by remember { mutableStateOf<BackdropCandidate?>(null) }
+    var showCustomUrlDialog by remember { mutableStateOf(false) }
+
+    val filteredItems = remember(pickerState.items, tab) {
+        when (tab) {
+            1 -> pickerState.items.filter { it.provider.equals("TMDB", ignoreCase = true) }
+            2 -> pickerState.items.filter { !it.provider.equals("TMDB", ignoreCase = true) }
+            else -> pickerState.items
+        }
+    }
+
+    val firstCard = remember { FocusRequester() }
+    val toggleFocus = remember { listOf(FocusRequester(), FocusRequester(), FocusRequester()) }
+    val customUrlFocus = remember { FocusRequester() }
+    val resetFocus = remember { FocusRequester() }
+
+    BackHandler(enabled = !showCustomUrlDialog) { onClose() }
+
+    LaunchedEffect(pickerState.loaded, tab) {
+        repeat(5) {
+            val ok = (filteredItems.isNotEmpty() && runCatching { firstCard.requestFocus() }.getOrDefault(false)) ||
+                runCatching { toggleFocus[tab].requestFocus() }.getOrDefault(false)
+            if (ok) return@LaunchedEffect
+            delay(60)
+        }
+    }
+
+    val previewUrl = focusedCandidate?.previewUrl ?: currentBackdropUrl ?: meta.backdropUrl
+    val previewProvider = focusedCandidate?.provider ?: if (hasCustomOverride) "Custom" else "Default"
+    val previewSubtitle = focusedCandidate?.subtitle ?: if (hasCustomOverride) "Active custom override" else "Current backdrop"
+
+    PanelFrame {
+        Row(Modifier.fillMaxSize()) {
+            // Left preview column
+            Column(
+                modifier = Modifier
+                    .width(300.dp)
+                    .fillMaxHeight()
+                    .padding(start = 32.dp, top = 36.dp, bottom = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                PanelLogo(meta)
+                Spacer(Modifier.height(14.dp))
+                Text(stringResource(R.string.nd_panel_backdrop_title), color = NdText2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    stringResource(R.string.nd_panel_backdrop_counts, pickerState.items.size),
+                    color = NdText3,
+                    fontSize = 12.sp
+                )
+                Spacer(Modifier.height(18.dp))
+
+                // Live 16:9 preview box
+                val previewShape = RoundedCornerShape(12.dp)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(150.dp)
+                        .clip(previewShape)
+                        .background(Color(0xFF161616)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (!previewUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = remember(previewUrl) {
+                                ImageRequest.Builder(context)
+                                    .data(previewUrl)
+                                    .crossfade(true)
+                                    .size(width = 640, height = 360)
+                                    .build()
+                            },
+                            contentDescription = meta.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .clip(NdPill)
+                            .background(Color.Black.copy(alpha = 0.72f))
+                            .padding(horizontal = 10.dp, vertical = 3.dp)
+                    ) {
+                        Text(previewProvider, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    previewSubtitle,
+                    color = NdText2,
+                    fontSize = 12.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Spacer(Modifier.weight(1f))
+
+                // Action buttons on the left column: Custom URL & Reset to Default
+                var customFocused by remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(36.dp)
+                        .then(
+                            if (customFocused) Modifier.detailGlassLens(NdPill)
+                            else Modifier.clip(NdPill).background(Color.White.copy(alpha = 0.08f))
+                        )
+                        .ndClickable(
+                            focusRequester = customUrlFocus,
+                            onFocusChanged = { customFocused = it },
+                            onClick = { showCustomUrlDialog = true }
+                        )
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        stringResource(R.string.nd_backdrop_custom_url_btn),
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                if (hasCustomOverride) {
+                    Spacer(Modifier.height(8.dp))
+                    var resetFocused by remember { mutableStateOf(false) }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(36.dp)
+                            .then(
+                                if (resetFocused) Modifier.detailGlassLens(NdPill)
+                                else Modifier.clip(NdPill).background(Color.White.copy(alpha = 0.08f))
+                            )
+                            .ndClickable(
+                                focusRequester = resetFocus,
+                                onFocusChanged = { resetFocused = it },
+                                onClick = {
+                                    onSelectBackdrop(null)
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        context.getString(R.string.nd_backdrop_reset_toast),
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                    onClose()
+                                }
+                            )
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Filled.Replay, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            stringResource(R.string.nd_backdrop_reset_btn),
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.width(28.dp))
+
+            // Right grid column
+            Column(Modifier.weight(1f).fillMaxHeight().padding(end = 32.dp)) {
+                Row(Modifier.fillMaxWidth().height(64.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        stringResource(
+                            when (tab) {
+                                1 -> R.string.nd_backdrop_tab_tmdb
+                                2 -> R.string.nd_backdrop_tab_other
+                                else -> R.string.nd_backdrop_tab_all
+                            }
+                        ),
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Row(Modifier.clip(NdPill).background(Color(0xFF1A1A1A)).padding(3.dp)) {
+                        val tabs = listOf(
+                            R.string.nd_backdrop_tab_all,
+                            R.string.nd_backdrop_tab_tmdb,
+                            R.string.nd_backdrop_tab_other
+                        )
+                        tabs.forEachIndexed { i, labelRes ->
+                            var focused by remember { mutableStateOf(false) }
+                            Text(
+                                stringResource(labelRes),
+                                color = when {
+                                    focused -> Color.Black
+                                    tab == i -> Color.White
+                                    else -> NdText2
+                                },
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .clip(NdPill)
+                                    .background(
+                                        when {
+                                            focused -> Color.White
+                                            tab == i -> Color(0xFF333333)
+                                            else -> Color.Transparent
+                                        }
+                                    )
+                                    .ndClickable(
+                                        focusRequester = toggleFocus[i],
+                                        onFocusChanged = { f -> focused = f; if (f) tab = i },
+                                        onClick = { runCatching { firstCard.requestFocus() } }
+                                    )
+                                    .padding(horizontal = 16.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+                }
+
+                if (pickerState.loading && filteredItems.isEmpty()) {
+                    Text(
+                        stringResource(R.string.nd_panel_backdrop_loading),
+                        color = NdText2,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 16.dp)
+                    )
+                } else if (filteredItems.isEmpty()) {
+                    Text(
+                        stringResource(R.string.nd_panel_backdrop_empty),
+                        color = NdText2,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 16.dp)
+                    )
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        contentPadding = PaddingValues(top = 4.dp, bottom = 28.dp)
+                    ) {
+                        items(filteredItems.size, key = { "bd_${tab}_${filteredItems[it].url}" }) { index ->
+                            val item = filteredItems[index]
+                            val isSelected = item.url == currentBackdropUrl
+                            BackdropOptionCard(
+                                candidate = item,
+                                isSelected = isSelected,
+                                requester = if (index == 0) firstCard else null,
+                                upTo = if (index < 3) toggleFocus[tab] else null,
+                                onFocused = { focusedCandidate = item },
+                                onClick = {
+                                    onSelectBackdrop(item.url)
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        context.getString(R.string.nd_backdrop_saved_toast),
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                    onClose()
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showCustomUrlDialog) {
+            CustomBackdropUrlDialog(
+                initialUrl = currentBackdropUrl.orEmpty(),
+                onSaveUrl = { customUrl ->
+                    showCustomUrlDialog = false
+                    if (customUrl.isBlank()) {
+                        onSelectBackdrop(null)
+                    } else {
+                        onSelectBackdrop(customUrl)
+                    }
+                    android.widget.Toast.makeText(
+                        context,
+                        context.getString(if (customUrl.isBlank()) R.string.nd_backdrop_reset_toast else R.string.nd_backdrop_saved_toast),
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                    onClose()
+                },
+                onDismiss = { showCustomUrlDialog = false }
+            )
+        }
+    }
+}
+
+@Composable
+private fun BackdropOptionCard(
+    candidate: BackdropCandidate,
+    isSelected: Boolean,
+    requester: FocusRequester?,
+    upTo: FocusRequester?,
+    onFocused: () -> Unit,
+    onClick: () -> Unit
+) {
+    val context = LocalContext.current
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(12.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (focused) Modifier.detailGlassLens(shape) else Modifier.clip(shape).background(Color(0xFF141414)))
+            .focusProperties { if (upTo != null) up = upTo }
+            .ndClickable(
+                focusRequester = requester,
+                onFocusChanged = { f ->
+                    focused = f
+                    if (f) onFocused()
+                },
+                onClick = onClick
+            )
+            .padding(6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(112.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0xFF222222))
+        ) {
+            AsyncImage(
+                model = remember(candidate.previewUrl) {
+                    ImageRequest.Builder(context)
+                        .data(candidate.previewUrl)
+                        .crossfade(false)
+                        .size(width = 480, height = 270)
+                        .build()
+                },
+                contentDescription = candidate.subtitle,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            // Provider chip top-left
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
+                    .clip(NdPill)
+                    .background(Color.Black.copy(alpha = 0.72f))
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text(candidate.provider, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            }
+            // Resolution/type badge bottom-right
+            if (!candidate.badge.isNullOrBlank()) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color.Black.copy(alpha = 0.72f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(candidate.badge, color = NdText2, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+            // Selected checkmark top-right
+            if (isSelected) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(Color.White),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Filled.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(14.dp))
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = candidate.subtitle ?: candidate.provider,
+            color = if (focused) Color.White else NdText2,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+    }
+}
+
+@OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
+@Composable
+private fun CustomBackdropUrlDialog(
+    initialUrl: String,
+    onSaveUrl: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var value by remember(initialUrl) { mutableStateOf(initialUrl) }
+    var isInputFocused by remember { mutableStateOf(false) }
+    val inputFocusRequester = remember { FocusRequester() }
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val context = LocalContext.current
+    val invalidMsg = stringResource(R.string.nd_backdrop_dialog_invalid)
+    val shape = RoundedCornerShape(10.dp)
+
+    LaunchedEffect(Unit) {
+        delay(60)
+        runCatching { inputFocusRequester.requestFocus() }
+    }
+
+    com.nuvio.tv.ui.components.NuvioDialog(
+        onDismiss = onDismiss,
+        title = stringResource(R.string.nd_backdrop_dialog_title),
+        subtitle = stringResource(R.string.nd_backdrop_dialog_subtitle),
+        width = 680.dp
+    ) {
+        androidx.tv.material3.Card(
+            onClick = { inputFocusRequester.requestFocus() },
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { isInputFocused = it.isFocused || it.hasFocus },
+            colors = androidx.tv.material3.CardDefaults.colors(
+                containerColor = com.nuvio.tv.ui.theme.NuvioTheme.colors.BackgroundElevated,
+                focusedContainerColor = com.nuvio.tv.ui.theme.NuvioTheme.colors.BackgroundElevated
+            ),
+            border = androidx.tv.material3.CardDefaults.border(
+                border = androidx.tv.material3.Border(
+                    border = androidx.compose.foundation.BorderStroke(
+                        com.nuvio.tv.ui.theme.NuvioTheme.spacing.hairline,
+                        com.nuvio.tv.ui.theme.NuvioTheme.colors.Border
+                    ),
+                    shape = shape
+                ),
+                focusedBorder = androidx.tv.material3.Border(
+                    border = com.nuvio.tv.ui.theme.NuvioTheme.focusRing.border(com.nuvio.tv.ui.theme.NuvioTheme.spacing.xxs),
+                    shape = shape
+                )
+            ),
+            shape = androidx.tv.material3.CardDefaults.shape(shape),
+            scale = androidx.tv.material3.CardDefaults.scale(focusedScale = 1f)
+        ) {
+            Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = com.nuvio.tv.ui.theme.NuvioTheme.spacing.md)) {
+                androidx.compose.foundation.text.BasicTextField(
+                    value = value,
+                    onValueChange = { value = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(inputFocusRequester),
+                    singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                    ),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                        onDone = { keyboardController?.hide() }
+                    ),
+                    textStyle = androidx.tv.material3.MaterialTheme.typography.bodyMedium.copy(
+                        color = com.nuvio.tv.ui.theme.NuvioTheme.colors.TextPrimary
+                    ),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(
+                        if (isInputFocused) com.nuvio.tv.ui.theme.NuvioTheme.colors.Primary else Color.Transparent
+                    ),
+                    decorationBox = { innerTextField ->
+                        if (value.isBlank()) {
+                            Text(
+                                text = stringResource(R.string.nd_backdrop_dialog_placeholder),
+                                style = androidx.tv.material3.MaterialTheme.typography.bodyMedium,
+                                color = com.nuvio.tv.ui.theme.NuvioTheme.colors.TextTertiary
+                            )
+                        }
+                        innerTextField()
+                    }
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            androidx.tv.material3.Button(
+                onClick = onDismiss,
+                colors = androidx.tv.material3.ButtonDefaults.colors(
+                    containerColor = com.nuvio.tv.ui.theme.NuvioTheme.colors.BackgroundElevated,
+                    contentColor = com.nuvio.tv.ui.theme.NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                Text(stringResource(R.string.action_cancel))
+            }
+            Spacer(modifier = Modifier.width(com.nuvio.tv.ui.theme.NuvioTheme.spacing.sm))
+            androidx.tv.material3.Button(
+                onClick = { onSaveUrl("") },
+                colors = androidx.tv.material3.ButtonDefaults.colors(
+                    containerColor = com.nuvio.tv.ui.theme.NuvioTheme.colors.BackgroundElevated,
+                    contentColor = com.nuvio.tv.ui.theme.NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                Text(stringResource(R.string.action_clear))
+            }
+            Spacer(modifier = Modifier.width(com.nuvio.tv.ui.theme.NuvioTheme.spacing.sm))
+            androidx.tv.material3.Button(
+                onClick = {
+                    val trimmed = value.trim()
+                    if (trimmed.isEmpty() || trimmed.startsWith("http://", true) || trimmed.startsWith("https://", true)) {
+                        onSaveUrl(trimmed)
+                    } else {
+                        android.widget.Toast.makeText(context, invalidMsg, android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                },
+                colors = androidx.tv.material3.ButtonDefaults.colors(
+                    containerColor = com.nuvio.tv.ui.theme.NuvioTheme.colors.BackgroundCard,
+                    contentColor = com.nuvio.tv.ui.theme.NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                Text(stringResource(R.string.action_save))
+            }
+        }
+    }
+}

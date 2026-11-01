@@ -571,7 +571,11 @@ data class TmdbTvContentRatingItem(
 data class TmdbImage(
     @Json(name = "file_path") val filePath: String? = null,
     @Json(name = "iso_639_1") val iso6391: String? = null,
-    @Json(name = "iso_3166_1") val iso31661: String? = null
+    @Json(name = "iso_3166_1") val iso31661: String? = null,
+    @Json(name = "width") val width: Int? = null,
+    @Json(name = "height") val height: Int? = null,
+    @Json(name = "vote_average") val voteAverage: Double? = null,
+    @Json(name = "vote_count") val voteCount: Int? = null
 )
 
 @JsonClass(generateAdapter = true)

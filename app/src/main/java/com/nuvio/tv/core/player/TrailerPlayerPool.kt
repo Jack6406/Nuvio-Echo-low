@@ -127,15 +127,19 @@ class TrailerPlayerPool @Inject constructor(
     }
 
     private fun createPlayer(): ExoPlayer {
-        val forceNative = cachedForceNative
-        Log.d(TAG, "Creating shared trailer ExoPlayer instance with forceNativeAllocation = $forceNative")
+        val is1GbMode = com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode
+        val forceNative = cachedForceNative || is1GbMode
+        Log.d(TAG, "Creating shared trailer ExoPlayer instance (is1GbMode=$is1GbMode, forceNative=$forceNative)")
         val loadControlBuilder = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ 30_000,
-                /* maxBufferMs = */ 120_000,
-                /* bufferForPlaybackMs = */ 5_000,
-                /* bufferForPlaybackAfterRebufferMs = */ 10_000
+                /* minBufferMs = */ if (is1GbMode) 4_000 else 30_000,
+                /* maxBufferMs = */ if (is1GbMode) 12_000 else 120_000,
+                /* bufferForPlaybackMs = */ if (is1GbMode) 1_500 else 5_000,
+                /* bufferForPlaybackAfterRebufferMs = */ if (is1GbMode) 3_000 else 10_000
             )
+        if (is1GbMode) {
+            loadControlBuilder.setTargetBufferBytes(8 * 1024 * 1024)
+        }
         if (forceNative) {
             val allocator = DefaultAllocator(
                 /* trimOnReset = */ true,
@@ -148,11 +152,17 @@ class TrailerPlayerPool @Inject constructor(
         val loadControl = loadControlBuilder.build()
         val trackSelector = DefaultTrackSelector(context).apply {
             setParameters(
-                buildUponParameters()
-                    .setMaxVideoSizeSd()
-                    .clearVideoSizeConstraints()
-                    .setForceHighestSupportedBitrate(true)
-                    .setMaxVideoSize(Integer.MAX_VALUE, Integer.MAX_VALUE)
+                if (is1GbMode) {
+                    buildUponParameters()
+                        .setMaxVideoSize(854, 480)
+                        .setMaxVideoBitrate(2_500_000)
+                } else {
+                    buildUponParameters()
+                        .setMaxVideoSizeSd()
+                        .clearVideoSizeConstraints()
+                        .setForceHighestSupportedBitrate(true)
+                        .setMaxVideoSize(Integer.MAX_VALUE, Integer.MAX_VALUE)
+                }
             )
         }
         return ExoPlayer.Builder(context)
@@ -160,7 +170,7 @@ class TrailerPlayerPool @Inject constructor(
             .setTrackSelector(trackSelector)
             .setBandwidthMeter(
                 DefaultBandwidthMeter.Builder(context)
-                    .setInitialBitrateEstimate(50_000_000L) // 50 Mbps – force highest HLS variant from start
+                    .setInitialBitrateEstimate(if (is1GbMode) 2_500_000L else 50_000_000L)
                     .build()
             )
             .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS)

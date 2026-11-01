@@ -295,10 +295,13 @@ class SeekThumbnailEngine(
         if (closed || wanted == null) return
         handler.post {
             if (syncSource() != null && loadIndex() != null) {
-                // Then fills in thumbnails across the video in the background, so scrubbing finds them made.
-                fillPrepared = true
-                fillWanted = true
-                scheduleFill(FILL_START_MS)
+                // On 1 GB RAM Fire Sticks, skip continuous background keyframe decoding during playback
+                // so the hardware decoder and heap stay dedicated to the playing stream.
+                if (!com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) {
+                    fillPrepared = true
+                    fillWanted = true
+                    scheduleFill(FILL_START_MS)
+                }
                 publishStatus()
             }
         }
@@ -1208,11 +1211,15 @@ class SeekThumbnailEngine(
 
     private companion object {
         const val TAG = "SeekThumbs"
-        const val THUMB_MAX_WIDTH = 384
-        const val THUMB_MAX_HEIGHT = 216
-        /** About 30 thumbnails: enough for a scrub back and forth, and a filmstrip either side. */
-        const val CACHE_BYTES = 10 * 1024 * 1024
-        const val MAX_KEYFRAME_BYTES = 12 * 1024 * 1024
+        val THUMB_MAX_WIDTH: Int
+            get() = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) 256 else 384
+        val THUMB_MAX_HEIGHT: Int
+            get() = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) 144 else 216
+        /** About 30 thumbnails on normal devices; capped to 2 MB on 1 GB RAM Fire Sticks. */
+        val CACHE_BYTES: Int
+            get() = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) 2 * 1024 * 1024 else 10 * 1024 * 1024
+        val MAX_KEYFRAME_BYTES: Int
+            get() = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) 4 * 1024 * 1024 else 12 * 1024 * 1024
         const val DEFAULT_BUDGET_BYTES = 800L * 1024 * 1024
         const val MAX_FAILURES = 3
         const val BUSY_GIVE_UP_MS = 10_000L
@@ -1225,10 +1232,12 @@ class SeekThumbnailEngine(
         const val MAX_PREFETCH_STEP_MS = 10L * 60_000L
         /** Thumbnails fetched ahead of the scrub: the next two presses. */
         const val PREFETCH_AHEAD = 2
-        /** Keyframes downloaded at once. */
-        const val FETCH_THREADS = 4
+        /** Keyframes downloaded at once (1 on 1 GB Fire Sticks to avoid heap spikes). */
+        val FETCH_THREADS: Int
+            get() = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) 1 else 4
         /** Downloads kept waiting to be decoded before finished, unwanted ones are dropped. */
-        const val MAX_INFLIGHT = 16
+        val MAX_INFLIGHT: Int
+            get() = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) 3 else 16
         /** Longest wait for a started download (the client gives up on a call after 20 s anyway). */
         const val FETCH_WAIT_S = 25L
         /** Warmed when the controls come up, in steps from the playhead: the first press forward, then back. */
@@ -1237,7 +1246,8 @@ class SeekThumbnailEngine(
         /** A made thumbnail stands in for one still coming when it's this close. */
         const val STAND_IN_MAX_MS = 5L * 60_000L
         /** Kept thumbnails (JPEG, ~10–20 KB each): room for every 10 s of a two-hour film. */
-        const val STORE_MAX_BYTES = 14L * 1024 * 1024
+        val STORE_MAX_BYTES: Long
+            get() = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) 3L * 1024 * 1024 else 14L * 1024 * 1024
         const val JPEG_QUALITY = 80
         const val FILL_START_MS = 500L
         /** A thumbnail made this close to a position is shown for it (at most half a press away). */

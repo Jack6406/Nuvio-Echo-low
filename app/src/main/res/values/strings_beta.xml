@@ -208,4 +208,11 @@
     <string name="pause_label">Paused</string>
     <string name="pause_left_hours">%1$dh %2$dm left</string>
     <string name="pause_left_minutes">%1$d min left</string>
+    <string name="beta_firestick_low_ram_title">Fire Stick 1 GB Low-RAM Optimization</string>
+    <string name="beta_firestick_low_ram_subtitle">Caps backdrop decode to 720p RGB_565, limits hero prefetch to 1 slide, trims background decoders, and reduces glass shadow overhead</string>
+    <string name="beta_firestick_low_ram_auto">Auto (%1$s)</string>
+    <string name="beta_firestick_low_ram_detected_on">Active</string>
+    <string name="beta_firestick_low_ram_detected_off">Standard</string>
+    <string name="beta_firestick_low_ram_on">Always On</string>
+    <string name="beta_firestick_low_ram_off">Off</string>
 </resources>

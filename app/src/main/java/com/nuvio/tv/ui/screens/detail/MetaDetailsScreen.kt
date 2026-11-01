@@ -514,10 +514,14 @@ fun MetaDetailsScreen(
                         val localDensity = LocalDensity.current
                         val configuration = LocalConfiguration.current
                         val loadingBackdropWidthPx = remember(configuration, localDensity) {
-                            with(localDensity) { configuration.screenWidthDp.dp.roundToPx() }
+                            com.nuvio.tv.core.runtime.DeviceMemoryTier.clampBackdropWidth(
+                                with(localDensity) { configuration.screenWidthDp.dp.roundToPx() }
+                            )
                         }
                         val loadingBackdropHeightPx = remember(configuration, localDensity) {
-                            with(localDensity) { configuration.screenHeightDp.dp.roundToPx() }
+                            com.nuvio.tv.core.runtime.DeviceMemoryTier.clampBackdropHeight(
+                                with(localDensity) { configuration.screenHeightDp.dp.roundToPx() }
+                            )
                         }
                         val loadingBackdropRequest = remember(localContext, heroBackdropUrl, loadingBackdropWidthPx, loadingBackdropHeightPx) {
                             ImageRequest.Builder(localContext)
@@ -885,10 +889,14 @@ private fun PlaybackHandoffBackdrop(backdropUrl: String?) {
             val density = LocalDensity.current
             val configuration = LocalConfiguration.current
             val widthPx = remember(configuration, density) {
-                with(density) { configuration.screenWidthDp.dp.roundToPx() }
+                com.nuvio.tv.core.runtime.DeviceMemoryTier.clampBackdropWidth(
+                    with(density) { configuration.screenWidthDp.dp.roundToPx() }
+                )
             }
             val heightPx = remember(configuration, density) {
-                with(density) { configuration.screenHeightDp.dp.roundToPx() }
+                com.nuvio.tv.core.runtime.DeviceMemoryTier.clampBackdropHeight(
+                    with(density) { configuration.screenHeightDp.dp.roundToPx() }
+                )
             }
             val request = remember(context, backdropUrl, widthPx, heightPx) {
                 ImageRequest.Builder(context)

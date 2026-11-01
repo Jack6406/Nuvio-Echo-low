@@ -89,4 +89,22 @@
         <item quantity="other">%d videos</item>
     </plurals>
     <string name="nd_trailer_untitled">Trailer</string>
+    <string name="nd_menu_backdrop">Change backdrop</string>
+    <string name="nd_backdrop_custom_badge">Custom</string>
+    <string name="nd_backdrop_active_label">Custom backdrop ✓</string>
+    <string name="nd_panel_backdrop_title">Backdrop Artwork</string>
+    <string name="nd_panel_backdrop_counts">%1$d options across providers</string>
+    <string name="nd_panel_backdrop_loading">Loading backdrops from TMDB &amp; providers…</string>
+    <string name="nd_panel_backdrop_empty">No alternative backdrops found. You can still set a custom image URL.</string>
+    <string name="nd_backdrop_tab_all">All</string>
+    <string name="nd_backdrop_tab_tmdb">TMDB</string>
+    <string name="nd_backdrop_tab_other">Other Providers</string>
+    <string name="nd_backdrop_custom_url_btn">Custom URL…</string>
+    <string name="nd_backdrop_reset_btn">Reset to default</string>
+    <string name="nd_backdrop_dialog_title">Custom Backdrop Image URL</string>
+    <string name="nd_backdrop_dialog_subtitle">Paste a direct image link (https://…) from TMDB, Fanart.tv, Metahub, or any other provider.</string>
+    <string name="nd_backdrop_dialog_placeholder">https://image.tmdb.org/t/p/w1280/…</string>
+    <string name="nd_backdrop_dialog_invalid">Please enter a valid http:// or https:// image URL</string>
+    <string name="nd_backdrop_saved_toast">Backdrop updated</string>
+    <string name="nd_backdrop_reset_toast">Restored default backdrop</string>
 </resources>

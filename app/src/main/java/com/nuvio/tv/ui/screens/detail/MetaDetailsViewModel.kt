@@ -250,18 +250,9 @@ class MetaDetailsViewModel @Inject constructor(
     }
 
     private fun observeMetaViewSettings() {
-        viewModelScope.launch {
-            layoutPreferenceDataStore.detailPageTrailerButtonEnabled
-                .distinctUntilChanged()
-                .collectLatest { enabled ->
-                    _uiState.update { state ->
-                        if (state.trailerButtonEnabled == enabled) {
-                            state
-                        } else {
-                            state.copy(trailerButtonEnabled = enabled)
-                        }
-                    }
-                }
+        // Manual trailer playback is always enabled; trailer autoplay is disabled.
+        _uiState.update { state ->
+            if (state.trailerButtonEnabled) state else state.copy(trailerButtonEnabled = true)
         }
     }
 
@@ -377,23 +368,10 @@ class MetaDetailsViewModel @Inject constructor(
     }
 
     private fun observeTrailerAutoplaySettings() {
-        viewModelScope.launch {
-            trailerSettingsDataStore.settings.collectLatest { settings ->
-                trailerAutoplayEnabled = settings.enabled
-                trailerDelayMs = settings.delaySeconds * 1000L
-                trailerPlayInBackground = settings.playInBackground
-                _uiState.update { state ->
-                    if (state.pauseBackgroundTrailerOnScroll == settings.pauseOnScroll) {
-                        state
-                    } else {
-                        state.copy(pauseBackgroundTrailerOnScroll = settings.pauseOnScroll)
-                    }
-                }
-                if (!settings.enabled) {
-                    idleTimerJob?.cancel()
-                }
-            }
-        }
+        // Trailer autoplay is completely disabled; only manual playback is permitted.
+        trailerAutoplayEnabled = false
+        trailerPlayInBackground = false
+        idleTimerJob?.cancel()
     }
 
     fun onEvent(event: MetaDetailsEvent) {
@@ -2703,24 +2681,8 @@ class MetaDetailsViewModel @Inject constructor(
     }
 
     private fun startIdleTimer() {
+        // Auto-playing trailers on idle/focus is disabled. Trailers only play when manually clicked.
         idleTimerJob?.cancel()
-        if (!AppFeaturePolicy.inAppTrailerPlaybackEnabled) return
-
-        val state = _uiState.value
-        if (state.trailerUrl == null || state.isTrailerPlaying || state.isBackgroundTrailerPlaying) return
-        if (!trailerAutoplayEnabled) return
-        if (trailerHasPlayed) return
-        if (!isPlayButtonFocused) return
-
-        idleTimerJob = viewModelScope.launch {
-            delay(trailerDelayMs)
-            setTrailerPlaybackState(
-                isPlaying = !trailerPlayInBackground,
-                showControls = false,
-                hideLogo = false,
-                isBackgroundPlaying = trailerPlayInBackground
-            )
-        }
     }
 
     private fun handlePlayButtonFocused() {
@@ -2763,7 +2725,13 @@ class MetaDetailsViewModel @Inject constructor(
 
     private fun handleTrailerButtonClick() {
         val state = _uiState.value
-        if (state.trailerUrl.isNullOrBlank()) return
+        if (state.trailerUrl.isNullOrBlank()) {
+            val firstPlayable = state.meta?.playableTrailers()?.firstOrNull()
+            if (firstPlayable != null) {
+                handleSharedTrailerSelected(firstPlayable)
+            }
+            return
+        }
         if (!AppFeaturePolicy.inAppTrailerPlaybackEnabled) {
             openExternalTrailer(state.trailerUrl)
             return
@@ -2773,7 +2741,8 @@ class MetaDetailsViewModel @Inject constructor(
         setTrailerPlaybackState(
             isPlaying = true,
             showControls = true,
-            hideLogo = true
+            hideLogo = true,
+            isBackgroundPlaying = false
         )
     }
 

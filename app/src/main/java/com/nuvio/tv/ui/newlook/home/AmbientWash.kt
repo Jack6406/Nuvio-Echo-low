@@ -51,7 +51,12 @@ private const val WASH_SATURATION = 1.25f
 private const val WASH_CROSSFADE_MS = 1_200
 
 private val washCache = object : LinkedHashMap<String, ImageBitmap>(16, 0.75f, true) {
-    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?) = size > 12
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?) =
+        size > if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) 4 else 12
+}
+
+internal fun clearAmbientWashCache() {
+    synchronized(washCache) { washCache.clear() }
 }
 
 /**
@@ -168,7 +173,8 @@ private fun washOf(source: Bitmap): ImageBitmap? {
     val r = FloatArray(w * h) { ((pixels[it] shr 16) and 0xFF).toFloat() }
     val g = FloatArray(w * h) { ((pixels[it] shr 8) and 0xFF).toFloat() }
     val b = FloatArray(w * h) { (pixels[it] and 0xFF).toFloat() }
-    repeat(WASH_BLUR_PASSES) {
+    val passes = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) 1 else WASH_BLUR_PASSES
+    repeat(passes) {
         for (channel in arrayOf(r, g, b)) {
             boxBlur(channel, w, h, WASH_BLUR_RADIUS, horizontal = true)
             boxBlur(channel, w, h, WASH_BLUR_RADIUS, horizontal = false)

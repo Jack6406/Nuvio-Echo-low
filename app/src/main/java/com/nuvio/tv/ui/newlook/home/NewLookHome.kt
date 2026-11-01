@@ -791,18 +791,9 @@ internal fun NewLookHomeContent(
         source.prefetchOnExpansion(target, dwellMs = 0L)
     }
     val heroItem = featured.getOrNull(slide)
-    // Off is the global preview switch as well as the poster expansion stop: highlighted and grand rows share the
-    // same trailer target, so gate it here before any surface can request or play a trailer.
-    val trailerTarget: Triple<String, String, Pair<String?, String>>? = if (settings.posterOpenDelayMs < 0) {
-        null
-    } else when {
-        heroHasFocus && heroItem != null -> Triple(heroItem.id, heroItem.name, heroItem.releaseInfo to heroItem.apiType)
-        else -> (highlightTrailerItem ?: posterTrailerItem)?.let { item ->
-            (item.payload as? ModernPayload.Catalog)?.let {
-                Triple(it.itemId, it.trailerTitle, it.trailerReleaseInfo to it.trailerApiType)
-            }
-        }
-    }
+    // Autoplay trailers on Home (Hero, Grand rows, Highlighted rows, and focused Poster cards) are disabled.
+    // Trailers are only played manually by the user on the Details screen.
+    val trailerTarget: Triple<String, String, Pair<String?, String>>? = null
     // How tall the trailer will play: the hero, a grand card, a highlight, or an opened poster.
     val trailerSurface: Dp = when {
         heroHasFocus -> if (settings.heroEdgeToEdge) NewLookLayout.EdgeHeroHeight else NewLookLayout.WindowHeight
@@ -851,12 +842,8 @@ internal fun NewLookHomeContent(
     // recompose on every key press).
     val latestAdvance by rememberUpdatedState(::advanceHighlight)
     val onHighlightTrailerEnded: () -> Unit = remember { { latestAdvance() } }
-    val highlightTrailerReady = highlightTrailerItem != null && trailerUrl != null
-    LaunchedEffect(highlightTrailerItem?.key, highlightTrailerReady) {
-        if (highlightTrailerItem == null) return@LaunchedEffect
-        delay(if (highlightTrailerReady) TRAILER_MAX_MS else NO_TRAILER_MS)
-        advanceHighlight()
-    }
+    val highlightTrailerReady = false
+    // Highlighted/Grand rows stay on the user's focused card instead of auto-advancing on a trailer timer.
 
     // Back: to the start of the row, then up to the window; from the window Back opens the menu.
     BackHandler(enabled = area == HomeArea.ROWS && focusedCard != null) {

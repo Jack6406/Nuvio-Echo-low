@@ -660,7 +660,7 @@ internal fun CollectionTile(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
-        } else if (focused && video != null) {
+        } else if (false && focused && video != null) {
             var loop by remember { mutableStateOf(0) }
             androidx.compose.runtime.key(loop) {
                 TrailerPlayer(

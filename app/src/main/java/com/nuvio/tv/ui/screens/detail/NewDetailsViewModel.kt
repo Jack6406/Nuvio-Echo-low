@@ -1,28 +1,38 @@
 package com.nuvio.tv.ui.screens.detail
 
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.nuvio.tv.core.poster.CustomPosterUrlResolver
+import com.nuvio.tv.core.tmdb.TmdbMetadataService
+import com.nuvio.tv.core.tmdb.TmdbService
+import com.nuvio.tv.data.local.CustomBackdropStore
+import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.local.ReleaseReminder
 import com.nuvio.tv.data.local.ReleaseRemindersStore
-import com.nuvio.tv.data.repository.TitleCredits
-import com.nuvio.tv.data.repository.TitleCreditsRepository
 import com.nuvio.tv.data.local.TitleRating
 import com.nuvio.tv.data.local.TitleRatings
 import com.nuvio.tv.data.local.TitleRatingsStore
+import com.nuvio.tv.data.local.TmdbSettingsDataStore
+import com.nuvio.tv.data.repository.TitleCredits
+import com.nuvio.tv.data.repository.TitleCreditsRepository
 import com.nuvio.tv.data.repository.TitleReviewsRepository
+import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.TraktCommentReview
 import com.nuvio.tv.domain.model.Video
 import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 /** Reviews for a title or an episode, as the new details page shows them. */
 data class ReviewsState(
@@ -31,9 +41,25 @@ data class ReviewsState(
     val items: List<TraktCommentReview> = emptyList()
 )
 
+@Immutable
+data class BackdropCandidate(
+    val url: String,
+    val previewUrl: String,
+    val provider: String,
+    val subtitle: String? = null,
+    val badge: String? = null
+)
+
+data class BackdropPickerState(
+    val loading: Boolean = false,
+    val loaded: Boolean = false,
+    val items: List<BackdropCandidate> = emptyList()
+)
+
 /**
  * What the new details page adds to [MetaDetailsViewModel]: the thumbs (stored per profile in [TitleRatingsStore],
- * read by Home's personal rows and Smart Highlights) and reviews ([TitleReviewsRepository]).
+ * read by Home's personal rows and Smart Highlights), reviews ([TitleReviewsRepository]), and custom backdrops
+ * ([CustomBackdropStore]) from TMDB and other artwork providers.
  */
 @HiltViewModel
 class NewDetailsViewModel @Inject constructor(
@@ -41,6 +67,11 @@ class NewDetailsViewModel @Inject constructor(
     private val reviewsRepository: TitleReviewsRepository,
     private val creditsRepository: TitleCreditsRepository,
     private val remindersStore: ReleaseRemindersStore,
+    private val customBackdropStore: CustomBackdropStore,
+    private val tmdbService: TmdbService,
+    private val tmdbMetadataService: TmdbMetadataService,
+    private val tmdbSettingsDataStore: TmdbSettingsDataStore,
+    private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private val itemId: String? = savedStateHandle["itemId"]
@@ -49,6 +80,11 @@ class NewDetailsViewModel @Inject constructor(
     val ratings: StateFlow<TitleRatings> = ratingsStore.ratings
         .stateIn(viewModelScope, SharingStarted.Eagerly, TitleRatings())
 
+    val customBackdrops: StateFlow<Map<String, String>> = customBackdropStore.overrides
+
+    private val _backdropPicker = MutableStateFlow(BackdropPickerState())
+    val backdropPicker: StateFlow<BackdropPickerState> = _backdropPicker.asStateFlow()
+
     private val _titleReviews = MutableStateFlow(ReviewsState())
     val titleReviews: StateFlow<ReviewsState> = _titleReviews.asStateFlow()
 
@@ -56,6 +92,7 @@ class NewDetailsViewModel @Inject constructor(
     val episodeReviews: StateFlow<Map<Pair<Int, Int>, ReviewsState>> = _episodeReviews.asStateFlow()
 
     private var reviewsFor: String? = null
+    private var backdropsFor: String? = null
 
     /** TMDB's full cast and crew, for the Cast & Crew panel; empty until loaded (or without a TMDB key). */
     private val _credits = MutableStateFlow(TitleCredits())
@@ -77,6 +114,171 @@ class NewDetailsViewModel @Inject constructor(
         viewModelScope.launch {
             _credits.value = runCatching { creditsRepository.credits(meta) }.getOrDefault(TitleCredits())
         }
+    }
+
+    /** Loads available backdrops for [meta] from TMDB, Addon, Metahub, Cinemeta, Custom Provider, and Episode Stills. */
+    fun loadBackdrops(meta: Meta, force: Boolean = false) {
+        if (!force && backdropsFor == meta.id && (_backdropPicker.value.loading || _backdropPicker.value.loaded)) return
+        backdropsFor = meta.id
+        _backdropPicker.value = BackdropPickerState(loading = true, items = _backdropPicker.value.items)
+        viewModelScope.launch(Dispatchers.IO) {
+            val seenUrls = LinkedHashSet<String>()
+            val candidates = ArrayList<BackdropCandidate>()
+
+            fun addCandidate(url: String?, previewUrl: String? = null, provider: String, subtitle: String? = null, badge: String? = null) {
+                val cleanUrl = url?.trim()?.takeIf { it.isNotEmpty() } ?: return
+                if (!seenUrls.add(cleanUrl)) return
+                candidates.add(
+                    BackdropCandidate(
+                        url = cleanUrl,
+                        previewUrl = previewUrl?.trim()?.takeIf { it.isNotEmpty() } ?: cleanUrl,
+                        provider = provider,
+                        subtitle = subtitle,
+                        badge = badge
+                    )
+                )
+            }
+
+            // 1. Addon's own default backdrop(s)
+            addCandidate(
+                url = meta.background,
+                provider = "Addon",
+                subtitle = "Default Backdrop",
+                badge = "Default"
+            )
+            if (meta.landscapePoster != null && meta.landscapePoster != meta.background) {
+                addCandidate(
+                    url = meta.landscapePoster,
+                    provider = "Addon",
+                    subtitle = "Landscape Poster",
+                    badge = "Wide"
+                )
+            }
+
+            // 2. TMDB backdrops (clean textless + localized + English high-res options)
+            val isSeries = meta.type == ContentType.SERIES || meta.type == ContentType.TV ||
+                meta.apiType.equals("series", ignoreCase = true) || meta.apiType.equals("tv", ignoreCase = true)
+            val tmdbType = if (isSeries) "tv" else "movie"
+            val tmdbContentType = if (isSeries) ContentType.SERIES else ContentType.MOVIE
+            val tmdbId = runCatching {
+                tmdbService.ensureTmdbId(meta.id, tmdbType, fallbackImdbId = meta.imdbId)
+                    ?: if (!itemId.isNullOrBlank()) tmdbService.ensureTmdbId(itemId, itemType ?: tmdbType, fallbackImdbId = meta.imdbId) else null
+            }.getOrNull()
+
+            if (!tmdbId.isNullOrBlank()) {
+                val lang = runCatching { tmdbSettingsDataStore.settings.first().language }.getOrDefault("en")
+                val tmdbOptions = runCatching {
+                    tmdbMetadataService.fetchBackdropOptions(
+                        tmdbId = tmdbId,
+                        contentType = tmdbContentType,
+                        language = lang
+                    )
+                }.getOrDefault(emptyList())
+
+                tmdbOptions.forEach { opt ->
+                    val subParts = listOfNotNull(
+                        opt.languageLabel,
+                        opt.voteAverage?.takeIf { it > 0.0 }?.let { String.format(java.util.Locale.US, "★ %.1f", it) }
+                    )
+                    addCandidate(
+                        url = opt.url,
+                        previewUrl = opt.previewUrl,
+                        provider = "TMDB",
+                        subtitle = subParts.joinToString(" · ").ifBlank { "TMDB Artwork" },
+                        badge = opt.resolutionLabel
+                    )
+                }
+            }
+
+            // 3. Metahub / Cinemeta providers (when IMDb ID is available)
+            val imdbId = listOfNotNull(meta.imdbId, meta.id, itemId)
+                .firstOrNull { it.startsWith("tt") }
+                ?.takeWhile { it != ':' && it != '/' }
+            if (!imdbId.isNullOrBlank()) {
+                addCandidate(
+                    url = "https://images.metahub.space/background/large/$imdbId/img",
+                    previewUrl = "https://images.metahub.space/background/medium/$imdbId/img",
+                    provider = "Metahub",
+                    subtitle = "Metahub HD Backdrop",
+                    badge = "1080p"
+                )
+                addCandidate(
+                    url = "https://live.metahub.space/background/large/$imdbId/img",
+                    previewUrl = "https://live.metahub.space/background/medium/$imdbId/img",
+                    provider = "Cinemeta",
+                    subtitle = "Cinemeta Live Artwork",
+                    badge = "HD"
+                )
+            }
+
+            // 4. Custom Poster/Backdrop URL Pattern Provider (RPDB / Top-Posters / AIORatings landscape)
+            runCatching {
+                val pattern = layoutPreferenceDataStore.customPosterUrlPattern.first()
+                if (pattern.isNotBlank()) {
+                    val baseIds = CustomPosterUrlResolver.extractIds(meta.id, meta.imdbId)
+                    val ids = if (baseIds.tmdbId == null && !tmdbId.isNullOrBlank()) {
+                        baseIds.copy(tmdbId = tmdbId)
+                    } else baseIds
+                    val resolvedLandscape = CustomPosterUrlResolver.resolve(
+                        pattern = pattern,
+                        ids = ids,
+                        type = if (isSeries) "series" else "movie",
+                        shape = "landscape"
+                    )
+                    addCandidate(
+                        url = resolvedLandscape,
+                        provider = "Custom Provider",
+                        subtitle = "Configured Layout Provider",
+                        badge = "Landscape"
+                    )
+                }
+            }
+
+            // 5. Scene / Episode Stills (up to 12 distinct episode thumbnails for series/movies)
+            meta.videos
+                .filter { !it.thumbnail.isNullOrBlank() }
+                .take(12)
+                .forEach { video ->
+                    val epLabel = if (video.season != null && video.episode != null) {
+                        "S${video.season} E${video.episode}" + (video.title.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "")
+                    } else {
+                        video.title.ifBlank { "Scene Still" }
+                    }
+                    addCandidate(
+                        url = video.thumbnail,
+                        provider = "Scene Still",
+                        subtitle = epLabel,
+                        badge = "Still"
+                    )
+                }
+
+            _backdropPicker.value = BackdropPickerState(
+                loading = false,
+                loaded = true,
+                items = candidates
+            )
+        }
+    }
+
+    /** Saves a custom backdrop override (or clears it when [url] is null) across all matching IDs for this title. */
+    fun setCustomBackdrop(meta: Meta, url: String?) {
+        val cleanUrl = url?.trim()?.takeIf { it.isNotEmpty() }
+        viewModelScope.launch {
+            val keys = buildSet {
+                add(meta.id)
+                itemId?.takeIf { it.isNotBlank() }?.let(::add)
+                meta.imdbId?.takeIf { it.isNotBlank() }?.let(::add)
+            }
+            keys.forEach { key ->
+                customBackdropStore.setBackdrop(key, cleanUrl)
+            }
+        }
+    }
+
+    fun resolveCustomBackdrop(meta: Meta): String? {
+        return customBackdrops.value[meta.id]
+            ?: (itemId?.let { customBackdrops.value[it] })
+            ?: (meta.imdbId?.let { customBackdrops.value[it] })
     }
 
     fun toggleReminder(reminder: ReleaseReminder) {

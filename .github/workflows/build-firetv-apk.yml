@@ -1,0 +1,49 @@
+name: Build Fire TV APK (Nuvio Echo)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    name: Assemble Full Beta APKs (Fire TV armeabi-v7a & arm64-v8a)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Full Beta APKs
+        env:
+          CI_USE_DEBUG_SIGNING: "true"
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: ./gradlew :app:assembleFullBeta --stacktrace
+
+      - name: Upload Fire TV 32-bit APK (Fire Stick 1GB / armeabi-v7a)
+        uses: actions/upload-artifact@v4
+        with:
+          name: NuvioEcho-FireStick-armeabi-v7a-apk
+          path: app/build/outputs/apk/full/beta/*armeabi-v7a*.apk
+          if-no-files-found: warn
+
+      - name: Upload All Built APKs (arm64-v8a, armeabi-v7a, universal)
+        uses: actions/upload-artifact@v4
+        with:
+          name: NuvioEcho-All-APKs
+          path: app/build/outputs/apk/full/beta/*.apk
+          if-no-files-found: error

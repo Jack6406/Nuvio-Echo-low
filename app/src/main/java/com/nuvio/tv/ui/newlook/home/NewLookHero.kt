@@ -155,11 +155,19 @@ internal fun HeroWindow(
     // sight, and coming back to a slide never shown left it black until the picture came in.
     var windowSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
     val prefetchContext = LocalContext.current
-    androidx.compose.runtime.LaunchedEffect(slides.map { it.backdrop }, windowSize) {
-        if (windowSize.width <= 0 || windowSize.height <= 0) return@LaunchedEffect
-        slides.mapNotNull { it.backdrop }.distinct().forEach { url ->
+    androidx.compose.runtime.LaunchedEffect(slides.map { it.backdrop }, windowSize, index) {
+        if (windowSize.width <= 0 || windowSize.height <= 0 || slides.isEmpty()) return@LaunchedEffect
+        val w = com.nuvio.tv.core.runtime.DeviceMemoryTier.clampBackdropWidth(windowSize.width)
+        val h = com.nuvio.tv.core.runtime.DeviceMemoryTier.clampBackdropHeight(windowSize.height)
+        val urlsToPrefetch = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) {
+            // On 1 GB RAM Fire Sticks, only prefetch the immediate next slide instead of all 20 slides at once.
+            listOfNotNull(slides.getOrNull((index + 1) % slides.size)?.backdrop)
+        } else {
+            slides.mapNotNull { it.backdrop }.distinct()
+        }
+        urlsToPrefetch.forEach { url ->
             prefetchContext.imageLoader.enqueue(
-                ImageRequest.Builder(prefetchContext).data(url).size(windowSize.width, windowSize.height).build()
+                ImageRequest.Builder(prefetchContext).data(url).size(w, h).build()
             )
         }
     }
@@ -176,7 +184,7 @@ internal fun HeroWindow(
     Box(
         modifier = modifier
             .then(
-                if (shadow && !edgeToEdge) Modifier.shadow(20.dp, shape, ambientColor = Color.Black.copy(alpha = 0.55f), spotColor = Color.Black.copy(alpha = 0.55f))
+                if (shadow && !edgeToEdge && !com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) Modifier.shadow(20.dp, shape, ambientColor = Color.Black.copy(alpha = 0.55f), spotColor = Color.Black.copy(alpha = 0.55f))
                 else Modifier
             )
             .then(if (edgeToEdge) Modifier.fadeOutBottom() else Modifier)

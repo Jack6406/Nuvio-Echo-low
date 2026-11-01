@@ -32,12 +32,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.NotificationsNone
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.outlined.Group
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.Shuffle
 import androidx.compose.material.icons.outlined.Tv
 import androidx.compose.material.icons.outlined.Visibility
+import com.nuvio.tv.core.runtime.DeviceMemoryTier
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -247,7 +250,7 @@ internal fun Meta.castAndCrew(): Pair<List<MetaCastMember>, List<MetaCastMember>
     return castOnly to crew
 }
 
-private enum class NdPanel { EPISODES, CAST }
+private enum class NdPanel { EPISODES, CAST, BACKDROP }
 
 /**
  * The new details page (Beta speed-ups → New details page). On the left, top to bottom: logo, details, synopsis
@@ -306,6 +309,11 @@ internal fun NewDetailsContent(
     val episodeRatings = remember(ratings, meta.id) { ratings.episodesOf(meta.id) }
     val reminders by extras.reminders.collectAsStateWithLifecycle()
     val credits by extras.credits.collectAsStateWithLifecycle()
+    val customBackdrops by extras.customBackdrops.collectAsStateWithLifecycle()
+    val backdropPickerState by extras.backdropPicker.collectAsStateWithLifecycle()
+    val customBackdropUrl = remember(customBackdrops, meta.id, meta.imdbId) {
+        extras.resolveCustomBackdrop(meta)
+    }
 
     val isSeries = meta.isSeriesLike()
     val heroVideo = remember(meta, state.nextToWatch, state.episodesForSeason) {
@@ -371,6 +379,7 @@ internal fun NewDetailsContent(
     val playFocus = remember { FocusRequester() }
     val episodesItemFocus = remember { FocusRequester() }
     val castItemFocus = remember { FocusRequester() }
+    val backdropItemFocus = remember { FocusRequester() }
     var returnFocusTo by remember { mutableStateOf<FocusRequester?>(null) }
 
     LaunchedEffect(meta.id) {
@@ -421,9 +430,13 @@ internal fun NewDetailsContent(
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     val context = LocalContext.current
-    val widthPx = remember(configuration, density) { with(density) { configuration.screenWidthDp.dp.roundToPx() } }
-    val heightPx = remember(configuration, density) { with(density) { configuration.screenHeightDp.dp.roundToPx() } }
-    val backdropUrl = meta.backdropUrl ?: meta.poster
+    val widthPx = remember(configuration, density) {
+        DeviceMemoryTier.clampBackdropWidth(with(density) { configuration.screenWidthDp.dp.roundToPx() })
+    }
+    val heightPx = remember(configuration, density) {
+        DeviceMemoryTier.clampBackdropHeight(with(density) { configuration.screenHeightDp.dp.roundToPx() })
+    }
+    val backdropUrl = customBackdropUrl ?: meta.backdropUrl ?: meta.poster
     val seedUrl = heroBackdropUrl?.takeIf { it.isNotBlank() && it != backdropUrl }
     val backdropRequest = remember(context, backdropUrl, widthPx, heightPx) {
         ImageRequest.Builder(context).data(backdropUrl).crossfade(400).size(width = widthPx, height = heightPx).build()
@@ -471,7 +484,7 @@ internal fun NewDetailsContent(
             trailerUrl = state.trailerUrl,
             trailerAudioUrl = state.trailerAudioUrl,
             isTrailerPlaying = state.isTrailerPlaying,
-            isBackgroundTrailerPlaying = state.isBackgroundTrailerPlaying,
+            isBackgroundTrailerPlaying = false,
             pauseBackgroundTrailerOnScroll = state.pauseBackgroundTrailerOnScroll,
             isTrailerPaused = isTrailerPaused,
             showTrailerControls = state.showTrailerControls,
@@ -551,6 +564,8 @@ internal fun NewDetailsContent(
                     playFocus = playFocus,
                     episodesItemFocus = episodesItemFocus,
                     castItemFocus = castItemFocus,
+                    backdropItemFocus = backdropItemFocus,
+                    hasCustomBackdrop = customBackdropUrl != null,
                     titleRating = titleRating,
                     watched = watched,
                     watchedPending = state.isMovieWatchedPending,
@@ -563,11 +578,16 @@ internal fun NewDetailsContent(
                     onPlay = play,
                     onPlayHold = if (upcoming == null) ({ playOptionsOpen = true }) else null,
                     onPlayBounds = { playBounds = it },
-                    hasTrailersTab = isSeries && trailers.isNotEmpty(),
+                    hasTrailersTab = trailers.isNotEmpty(),
                     onPlayFocused = onPlayButtonFocused,
                     onPlayFocusChanged = { playFocused = it },
                     onOpenEpisodes = { returnFocusTo = episodesItemFocus; panel = NdPanel.EPISODES },
                     onOpenCast = { returnFocusTo = castItemFocus; panel = NdPanel.CAST },
+                    onOpenBackdrop = {
+                        returnFocusTo = backdropItemFocus
+                        extras.loadBackdrops(meta)
+                        panel = NdPanel.BACKDROP
+                    },
                     onTrailer = onTrailerClick,
                     onRandomEpisode = {
                         meta.watchableEpisodes().randomOrNull()?.let(onPlayEpisode)
@@ -645,6 +665,14 @@ internal fun NewDetailsContent(
                 onCompany = { kind, company ->
                     company.tmdbId?.let { onNavigateToTmdbEntityBrowse(kind, it, company.name, meta.apiType) }
                 },
+                onClose = { panel = null }
+            )
+            NdPanel.BACKDROP -> BackdropPickerPanel(
+                meta = meta,
+                pickerState = backdropPickerState,
+                currentBackdropUrl = backdropUrl,
+                hasCustomOverride = customBackdropUrl != null,
+                onSelectBackdrop = { chosenUrl -> extras.setCustomBackdrop(meta, chosenUrl) },
                 onClose = { panel = null }
             )
             null -> Unit
@@ -745,6 +773,8 @@ private fun NdHero(
     playFocus: FocusRequester,
     episodesItemFocus: FocusRequester,
     castItemFocus: FocusRequester,
+    backdropItemFocus: FocusRequester,
+    hasCustomBackdrop: Boolean,
     titleRating: TitleRating?,
     watched: Boolean,
     watchedPending: Boolean,
@@ -762,6 +792,7 @@ private fun NdHero(
     onPlayFocusChanged: (Boolean) -> Unit,
     onOpenEpisodes: () -> Unit,
     onOpenCast: () -> Unit,
+    onOpenBackdrop: () -> Unit,
     onTrailer: () -> Unit,
     onRandomEpisode: () -> Unit,
     onFocusedInHero: () -> Unit
@@ -833,24 +864,28 @@ private fun NdHero(
                     onBinBounds = onBinBounds,
                     watched = watched,
                     watchedPending = watchedPending,
+                    hasCustomBackdrop = hasCustomBackdrop,
                     onRate = onRate,
                     onToggleLibrary = onToggleLibrary,
                     onLibraryLongPress = onLibraryLongPress,
-                    onToggleWatched = onToggleWatched
+                    onToggleWatched = onToggleWatched,
+                    onOpenBackdrop = onOpenBackdrop
                 )
                 Spacer(Modifier.height(12.dp))
+                val customBadge = if (hasCustomBackdrop) stringResource(R.string.nd_backdrop_custom_badge) else null
                 val items = buildList {
                     if (isSeries) add(NdMenuItem(Icons.Outlined.Tv, stringResource(R.string.nd_menu_episodes),
                         pluralStringResource(R.plurals.nd_seasons_count, state.seasons.count { it > 0 }, state.seasons.count { it > 0 }),
                         episodesItemFocus, onOpenEpisodes))
                     add(NdMenuItem(Icons.Outlined.Group, stringResource(R.string.nd_menu_cast), null, castItemFocus, onOpenCast))
-                    // A series' trailers are in the Episodes panel's Trailers tab instead.
-                    if (state.trailerButtonEnabled && !state.trailerUrl.isNullOrBlank() && !hasTrailersTab) {
+                    // Manual trailer button: always available whenever a resolved trailer URL or trailer ID exists.
+                    if (!state.trailerUrl.isNullOrBlank() || hasTrailersTab) {
                         add(NdMenuItem(Icons.Outlined.Movie, stringResource(R.string.nd_menu_trailer), null, null, onTrailer))
                     }
                     if (isSeries && meta.videos.isNotEmpty()) {
                         add(NdMenuItem(Icons.Outlined.Shuffle, stringResource(R.string.nd_menu_random), null, null, onRandomEpisode))
                     }
+                    add(NdMenuItem(Icons.Outlined.Image, stringResource(R.string.nd_menu_backdrop), customBadge, backdropItemFocus, onOpenBackdrop))
                 }
                 NdPlayMenu(
                     upFocus = likeFocus,
@@ -1168,10 +1203,12 @@ private fun NdRatingRow(
     onBinBounds: (Rect) -> Unit,
     watched: Boolean,
     watchedPending: Boolean,
+    hasCustomBackdrop: Boolean,
     onRate: (TitleRating) -> Unit,
     onToggleLibrary: () -> Unit,
     onLibraryLongPress: () -> Unit,
-    onToggleWatched: () -> Unit
+    onToggleWatched: () -> Unit,
+    onOpenBackdrop: () -> Unit
 ) {
     val likeLabel = stringResource(R.string.nd_rate_like)
     val loveLabel = stringResource(R.string.nd_rate_love)
@@ -1188,7 +1225,10 @@ private fun NdRatingRow(
             { on, c -> DetailGlyphIcon(DetailGlyph.STAR, on, c, 18.dp) }, onToggleLibrary, onLibraryLongPress),
         NdRateButton("watched", stringResource(R.string.nd_mark_watched), stringResource(R.string.nd_watched), watched, !watchedPending,
             { on, c -> Icon(if (on) Icons.Filled.Visibility else Icons.Outlined.Visibility, null, tint = c, modifier = Modifier.size(19.dp)) },
-            onToggleWatched)
+            onToggleWatched),
+        NdRateButton("backdrop", stringResource(R.string.nd_menu_backdrop), stringResource(R.string.nd_backdrop_active_label), hasCustomBackdrop, true,
+            { on, c -> Icon(if (on) Icons.Filled.Image else Icons.Outlined.Image, null, tint = c, modifier = Modifier.size(18.dp)) },
+            onOpenBackdrop)
     )
     var focusedKey by remember { mutableStateOf<String?>(null) }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {

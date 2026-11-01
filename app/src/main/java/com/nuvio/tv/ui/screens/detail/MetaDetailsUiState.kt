@@ -48,7 +48,7 @@ data class MetaDetailsUiState(
     val sharedTrailerAudioUrl: String? = null,
     val sharedTrailerErrorMessage: String? = null,
     val selectedSharedTrailer: MetaTrailer? = null,
-    val trailerButtonEnabled: Boolean = false,
+    val trailerButtonEnabled: Boolean = true,
     val librarySourceMode: LibrarySourceMode = LibrarySourceMode.LOCAL,
     /** Every bin, in custom order, for the Bin button's hold-down list. */
     val bins: List<com.nuvio.tv.core.bins.Bin> = emptyList(),

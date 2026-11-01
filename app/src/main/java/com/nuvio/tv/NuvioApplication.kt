@@ -45,6 +45,9 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var androidTvChannelSyncService: AndroidTvChannelSyncService
     @Inject lateinit var sentrySettingsDataStore: SentrySettingsDataStore
     @Inject lateinit var imagePerformancePreferences: ImagePerformancePreferences
+    @Inject lateinit var customBackdropStore: com.nuvio.tv.data.local.CustomBackdropStore
+    @Inject lateinit var tmdbMetadataService: dagger.Lazy<com.nuvio.tv.core.tmdb.TmdbMetadataService>
+    @Inject lateinit var trailerPlayerPool: dagger.Lazy<com.nuvio.tv.core.player.TrailerPlayerPool>
     @Inject lateinit var simklAnimeIdPreferenceHolder: SimklAnimeIdPreferenceHolder
     @Inject lateinit var streamPrefetcher: dagger.Lazy<com.nuvio.tv.core.streams.StreamPrefetcher>
     private val startupScope = kotlinx.coroutines.CoroutineScope(
@@ -82,9 +85,13 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
     }
 
     override fun onCreate() {
-        // Before anything else: the TMDB and Gemini keys are read synchronously from here on.
+        // Before anything else: the TMDB and Gemini keys and low-RAM tier are read synchronously from here on.
         com.nuvio.tv.core.apikeys.ApiKeys.init(this)
+        com.nuvio.tv.core.runtime.DeviceMemoryTier.init(this)
         super.onCreate()
+        com.nuvio.tv.core.runtime.DeviceMemoryTier.overrideMode = imagePerformancePreferences.lowRamMode
+        // Eagerly touch customBackdropStore so its StateFlow populates the in-memory mirror.
+        customBackdropStore.overrides.value
         SentryInitializer.start(this, sentrySettingsDataStore)
         PluginRuntimeHooks.onApplicationCreate(this)
         androidTvChannelSyncService.start()
@@ -102,10 +109,11 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
     }
 
     override fun newImageLoader(context: android.content.Context): ImageLoader {
+        val is1GbMode = com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode
         val imageOkHttpClient by lazy {
             val imageDispatcher = okhttp3.Dispatcher().apply {
-                maxRequests = 32
-                maxRequestsPerHost = 16
+                maxRequests = if (is1GbMode) 12 else 32
+                maxRequestsPerHost = if (is1GbMode) 6 else 16
             }
             OkHttpClient.Builder()
                 .dispatcher(imageDispatcher)
@@ -161,6 +169,7 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
                 // Normal devices (>3GB): use 0.25 for snappy image loading.
                 // - hardware bitmaps (one copy, in graphics memory) are a Beta speed-ups switch, off by default
                 val cachePercent = when {
+                    is1GbMode || totalRamMb <= 1400 -> 0.10
                     totalRamMb <= 2048 -> 0.15
                     totalRamMb <= 3072 -> 0.20
                     else -> 0.25
@@ -172,14 +181,36 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache").toOkioPath())
-                    .maxSizeBytes(200L * 1024 * 1024)
+                    .maxSizeBytes(if (is1GbMode) 80L * 1024 * 1024 else 200L * 1024 * 1024)
                     .build()
             }
             .crossfade(false)
             .precision(coil3.size.Precision.INEXACT)
             .allowHardware(imagePerformancePreferences.hardwareBitmapsEnabled)
-            .allowRgb565(imagePerformancePreferences.rgb565Enabled)
-            .bitmapFactoryMaxParallelism(4)
+            .allowRgb565(if (is1GbMode) true else imagePerformancePreferences.rgb565Enabled)
+            .bitmapFactoryMaxParallelism(if (is1GbMode) 2 else 4)
             .build()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_RUNNING_LOW || level >= TRIM_MEMORY_UI_HIDDEN) {
+            runCatching { SingletonImageLoader.get(this).memoryCache?.clear() }
+            com.nuvio.tv.ui.newlook.home.clearAmbientWashCache()
+            com.nuvio.tv.ui.newlook.home.clearAmbientTintCache()
+        }
+        if (level >= TRIM_MEMORY_RUNNING_CRITICAL || level >= TRIM_MEMORY_BACKGROUND) {
+            runCatching { tmdbMetadataService.get().trimMemoryCaches() }
+            runCatching { trailerPlayerPool.get().yield() }
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        runCatching { SingletonImageLoader.get(this).memoryCache?.clear() }
+        com.nuvio.tv.ui.newlook.home.clearAmbientWashCache()
+        com.nuvio.tv.ui.newlook.home.clearAmbientTintCache()
+        runCatching { tmdbMetadataService.get().trimMemoryCaches() }
+        runCatching { trailerPlayerPool.get().yield() }
     }
 }

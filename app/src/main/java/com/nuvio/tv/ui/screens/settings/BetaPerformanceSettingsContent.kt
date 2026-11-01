@@ -62,6 +62,14 @@ class BetaPerformanceSettingsViewModel @Inject constructor(
     private val _hardwareBitmaps = MutableStateFlow(imagePerformancePreferences.hardwareBitmapsEnabled)
     val hardwareBitmaps: StateFlow<Boolean> = _hardwareBitmaps.asStateFlow()
 
+    private val _lowRamMode = MutableStateFlow(imagePerformancePreferences.lowRamMode)
+    val lowRamMode: StateFlow<Int> = _lowRamMode.asStateFlow()
+
+    fun setLowRamMode(mode: Int) {
+        imagePerformancePreferences.setLowRamMode(mode)
+        _lowRamMode.value = mode
+    }
+
     /** Trailers on Home (hero and highlighted cards) play with sound; the same setting as the old "Trailer muted". */
     val trailerSound: StateFlow<Boolean> = layoutPreferenceDataStore.focusedPosterBackdropTrailerMuted
         .map { !it }
@@ -323,6 +331,26 @@ internal fun HomeMotionRows(viewModel: BetaPerformanceSettingsViewModel = hiltVi
 internal fun DrawingPerformanceRows(viewModel: BetaPerformanceSettingsViewModel = hiltViewModel()) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val hardwareBitmaps by viewModel.hardwareBitmaps.collectAsStateWithLifecycle()
+    val lowRamMode by viewModel.lowRamMode.collectAsStateWithLifecycle()
+    val detectedLabel = stringResource(
+        if (com.nuvio.tv.core.runtime.DeviceMemoryTier.detectedLowRamDevice)
+            R.string.beta_firestick_low_ram_detected_on
+        else
+            R.string.beta_firestick_low_ram_detected_off
+    )
+    SettingsSectionLabel(
+        text = stringResource(R.string.beta_firestick_low_ram_title),
+        description = stringResource(R.string.beta_firestick_low_ram_subtitle)
+    )
+    SettingsChipRow(
+        items = listOf(
+            com.nuvio.tv.core.runtime.DeviceMemoryTier.MODE_AUTO.toString() to stringResource(R.string.beta_firestick_low_ram_auto, detectedLabel),
+            com.nuvio.tv.core.runtime.DeviceMemoryTier.MODE_ON.toString() to stringResource(R.string.beta_firestick_low_ram_on),
+            com.nuvio.tv.core.runtime.DeviceMemoryTier.MODE_OFF.toString() to stringResource(R.string.beta_firestick_low_ram_off)
+        ),
+        selected = setOf(lowRamMode.toString()),
+        onToggle = { key -> viewModel.setLowRamMode(key.toIntOrNull() ?: com.nuvio.tv.core.runtime.DeviceMemoryTier.MODE_AUTO) }
+    )
     SettingsToggleRow(
         title = stringResource(R.string.beta_hardware_bitmaps_title),
         subtitle = stringResource(R.string.beta_hardware_bitmaps_subtitle),

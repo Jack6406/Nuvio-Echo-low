@@ -55,5 +55,16 @@ class ImagePerformancePreferences @Inject constructor(
         const val PREFERENCES_NAME = "image_performance"
         const val KEY_RGB565_ENABLED = "rgb565_enabled"
         const val KEY_HARDWARE_BITMAPS_ENABLED = "hardware_bitmaps_enabled"
+        const val KEY_LOW_RAM_MODE = "firestick_low_ram_mode"
+    }
+
+    val lowRamMode: Int
+        get() = preferences.getInt(KEY_LOW_RAM_MODE, com.nuvio.tv.core.runtime.DeviceMemoryTier.MODE_AUTO)
+
+    fun setLowRamMode(mode: Int): Boolean {
+        com.nuvio.tv.core.runtime.DeviceMemoryTier.overrideMode = mode
+        return preferences.edit()
+            .putInt(KEY_LOW_RAM_MODE, mode)
+            .commit()
     }
 }

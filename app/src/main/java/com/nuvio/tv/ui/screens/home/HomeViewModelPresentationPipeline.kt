@@ -264,6 +264,9 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
     /** How tall (px) the trailer will play; null is full screen. Auto trailer quality fetches to match it. */
     surfaceHeightPx: Int? = null
 ) {
+    // Trailer autoplay on Home is disabled; skip background trailer extraction.
+    if (true) return
+
     if (!AppFeaturePolicy.inAppTrailerPlaybackEnabled) return
     if (startupGracePeriodActive) return
 

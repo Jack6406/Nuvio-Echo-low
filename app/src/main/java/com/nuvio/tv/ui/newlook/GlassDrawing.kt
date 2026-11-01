@@ -49,7 +49,7 @@ internal val focusRingColor: Color
  */
 internal fun Modifier.glassSurface(shape: Shape, glints: Boolean = true, shadow: Boolean = true): Modifier = this
     .then(
-        if (!shadow) Modifier else Modifier.shadow(
+        if (!shadow || com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) Modifier else Modifier.shadow(
             elevation = 14.dp,
             shape = shape,
             clip = false,

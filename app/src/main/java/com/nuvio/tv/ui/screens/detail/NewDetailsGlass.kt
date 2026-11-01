@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.dp
 /** The pill (or circle) that marks what's focused. */
 internal fun Modifier.detailGlassLens(shape: Shape, lifted: Boolean = true): Modifier = this
     .then(
-        if (lifted) Modifier.shadow(elevation = 6.dp, shape = shape, clip = false,
+        if (lifted && !com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) Modifier.shadow(elevation = 6.dp, shape = shape, clip = false,
             ambientColor = Color.Black.copy(alpha = 0.35f), spotColor = Color.Black.copy(alpha = 0.35f))
         else Modifier
     )

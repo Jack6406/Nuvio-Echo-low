@@ -49,7 +49,15 @@ class NewLookEnricher @Inject constructor(
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, NewLookDetails>?) = size > 200
     }
 
-    fun cached(id: String): NewLookDetails? = synchronized(cache) { cache[id] }
+    fun cached(id: String): NewLookDetails? {
+        val base = synchronized(cache) { cache[id] }
+        val customBackdrop = com.nuvio.tv.data.local.CustomBackdropStore.getOverride(id)
+        return when {
+            base != null && customBackdrop != null && base.backdrop != customBackdrop -> base.copy(backdrop = customBackdrop)
+            base == null && customBackdrop != null -> NewLookDetails(backdrop = customBackdrop)
+            else -> base
+        }
+    }
 
     /** [withTag] also looks up why the title would be featured (one more request for shows). */
     suspend fun details(item: MetaPreview, withTag: Boolean = false, topTenIds: Set<String> = emptySet()): NewLookDetails? =
@@ -78,7 +86,9 @@ class NewLookEnricher @Inject constructor(
                     details = details.copy(tag = tag, tagSeason = season)
                 }
                 synchronized(cache) { cache[item.id] = details }
-                details
+                val customBackdrop = com.nuvio.tv.data.local.CustomBackdropStore.getOverride(item.id)
+                    ?: com.nuvio.tv.data.local.CustomBackdropStore.getOverride(item.imdbId)
+                if (customBackdrop != null) details.copy(backdrop = customBackdrop) else details
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

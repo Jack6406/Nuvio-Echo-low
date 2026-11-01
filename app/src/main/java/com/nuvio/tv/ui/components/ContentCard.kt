@@ -431,10 +431,7 @@ fun ContentCard(
                 val isLandscapeBackdropCard = globalLandscape &&
                     effectiveLandscapePoster.isNullOrBlank()
 
-                val shouldPlayTrailerPreview = isBackdropExpanded &&
-                    focusedPosterBackdropTrailerEnabled &&
-                    isFocused &&
-                    trailerPreviewUrl != null
+                val shouldPlayTrailerPreview = false
 
                 if (focusedPosterBackdropTrailerEnabled) {
                     LaunchedEffect(shouldPlayTrailerPreview) {
