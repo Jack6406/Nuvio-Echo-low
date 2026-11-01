@@ -94,7 +94,9 @@ class AccountViewModel @Inject constructor(
     private var qrLoginExchangeInFlight: Boolean = false
 
     val usesEmailPasswordLogin: Boolean
-        get() = serverConfiguration.isCustom && serverConfiguration.capabilities.emailPasswordAuth
+        get() = serverConfiguration.isCustom &&
+            serverConfiguration.capabilities.emailPasswordAuth &&
+            !serverConfiguration.capabilities.tvLogin
 
     init {
         observeAuthState()
@@ -158,6 +160,7 @@ class AccountViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
             authManager.signInWithEmail(email, password).fold(
                 onSuccess = {
+                    cancelQrLoginPolling()
                     pullRemoteData().onFailure { e ->
                         Log.e("AccountViewModel", "signIn: pullRemoteData failed, continuing signed-in flow", e)
                     }
@@ -169,6 +172,37 @@ class AccountViewModel @Inject constructor(
                 }
             )
         }
+    }
+
+    suspend fun authenticateFromWeb(email: String, password: String, isSignUp: Boolean): Result<Unit> {
+        _uiState.update { it.copy(isLoading = true, error = null) }
+        val authResult = if (isSignUp) {
+            authManager.signUpWithEmail(email.trim(), password)
+        } else {
+            authManager.signInWithEmail(email.trim(), password)
+        }
+        return authResult.fold(
+            onSuccess = {
+                cancelQrLoginPolling()
+                viewModelScope.launch {
+                    if (isSignUp) {
+                        runCatching { pushLocalDataToRemote() }
+                    } else {
+                        pullRemoteData().onFailure { e ->
+                            Log.e("AccountViewModel", "authenticateFromWeb: pullRemoteData failed, continuing signed-in flow", e)
+                        }
+                    }
+                    loadConnectedStats()
+                    _uiState.update { it.copy(isLoading = false) }
+                }
+                Result.success(Unit)
+            },
+            onFailure = { e ->
+                val friendly = userFriendlyError(e)
+                _uiState.update { it.copy(isLoading = false, error = friendly) }
+                Result.failure(Exception(friendly, e))
+            }
+        )
     }
 
     fun generateSyncCode(pin: String) {

@@ -5,8 +5,10 @@ package com.nuvio.tv.ui.screens.account
 import com.nuvio.tv.ui.theme.NuvioTheme
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -14,6 +16,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -56,6 +59,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.tv.material3.Border
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -63,6 +67,9 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.R
+import com.nuvio.tv.core.qr.QrCodeGenerator
+import com.nuvio.tv.core.server.DeviceIpAddress
+import com.nuvio.tv.core.server.LocalAuthWebServer
 import com.nuvio.tv.domain.model.AuthState
 import com.nuvio.tv.ui.components.BrandWordmark
 import com.nuvio.tv.ui.components.SkeletonBar
@@ -81,18 +88,30 @@ private val AuthPaneBorder = Color.White.copy(alpha = 0.07f)
 private val AuthSecondaryButtonBackground = Color.White.copy(alpha = 0.05f)
 private val AuthSecondaryButtonBorder = Color.White.copy(alpha = 0.09f)
 
+private enum class TvSignInMethod {
+    QR_CODE,
+    WEB_BROWSER,
+    TV_EMAIL
+}
+
 @Composable
 fun AuthQrSignInScreen(
     onBackPress: () -> Unit = {},
     onContinue: (() -> Unit)? = null,
     viewModel: AccountViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val fullAccount = uiState.authState as? AuthState.FullAccount
     val isSignedIn = fullAccount != null
     val isOnboardingMode = onContinue != null
-    val useEmailLogin = viewModel.usesEmailPasswordLogin
-    val useQrLogin = !useEmailLogin
+    val defaultEmailOnly = viewModel.usesEmailPasswordLogin
+    var signInMethod by rememberSaveable(defaultEmailOnly) {
+        mutableStateOf(if (defaultEmailOnly) TvSignInMethod.TV_EMAIL else TvSignInMethod.QR_CODE)
+    }
+    val useEmailLogin = signInMethod == TvSignInMethod.TV_EMAIL
+    val useWebLogin = signInMethod == TvSignInMethod.WEB_BROWSER
+    val useQrLogin = signInMethod == TvSignInMethod.QR_CODE
     val isApproved = remember(uiState.qrLoginStatus) {
         uiState.qrLoginStatus?.contains("approved", ignoreCase = true) == true
     }
@@ -100,6 +119,12 @@ fun AuthQrSignInScreen(
     var exitRequested by remember { mutableStateOf(false) }
     var showSignOutConfirmation by remember { mutableStateOf(false) }
     val loginFocusRequester = remember { FocusRequester() }
+    var localWebUrl by remember { mutableStateOf<String?>(null) }
+    val localWebQrBitmap = remember(localWebUrl) {
+        localWebUrl?.let { url ->
+            runCatching { QrCodeGenerator.generate(url, 420, margin = 1) }.getOrNull()
+        }
+    }
 
     fun leaveAuthScreen() {
         exitRequested = true
@@ -124,13 +149,46 @@ fun AuthQrSignInScreen(
         leaveAuthScreen()
     }
 
+    DisposableEffect(isSignedIn) {
+        var webServer: LocalAuthWebServer? = null
+        if (!isSignedIn) {
+            val ip = DeviceIpAddress.get(context)
+            if (!ip.isNullOrBlank()) {
+                webServer = LocalAuthWebServer.startOnAvailablePort(
+                    isSignedInProvider = { viewModel.uiState.value.authState is AuthState.FullAccount },
+                    signedInEmailProvider = { (viewModel.uiState.value.authState as? AuthState.FullAccount)?.email },
+                    onAuthenticate = { email, password, isSignUp ->
+                        viewModel.authenticateFromWeb(email, password, isSignUp)
+                    }
+                )
+                localWebUrl = webServer?.let { "http://$ip:${it.listeningPort}" }
+            } else {
+                localWebUrl = null
+            }
+        } else {
+            localWebUrl = null
+        }
+        onDispose {
+            runCatching { webServer?.stop() }
+            localWebUrl = null
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             viewModel.clearQrLoginSession()
         }
     }
 
-    LaunchedEffect(uiState.authState, isSignedIn, uiState.qrLoginCode, uiState.isLoading, uiState.error, exitRequested) {
+    LaunchedEffect(
+        signInMethod,
+        uiState.authState,
+        isSignedIn,
+        uiState.qrLoginCode,
+        uiState.isLoading,
+        uiState.error,
+        exitRequested
+    ) {
         if (
             useQrLogin &&
             !exitRequested &&
@@ -145,12 +203,12 @@ fun AuthQrSignInScreen(
     }
 
     LaunchedEffect(isSignedIn) {
-        if (useQrLogin && isSignedIn && !uiState.qrLoginCode.isNullOrBlank()) {
+        if (isSignedIn && !uiState.qrLoginCode.isNullOrBlank()) {
             viewModel.clearQrLoginSession()
         }
     }
 
-    LaunchedEffect(isApproved, uiState.isLoading) {
+    LaunchedEffect(isApproved, uiState.isLoading, useQrLogin) {
         if (useQrLogin && isApproved && !uiState.isLoading) {
             viewModel.exchangeQrLogin()
         }
@@ -191,12 +249,13 @@ fun AuthQrSignInScreen(
                     .padding(start = 56.dp, end = 56.dp),
                 isSignedIn = isSignedIn,
                 fullAccount = fullAccount,
-                useEmailLogin = useEmailLogin
+                signInMethod = signInMethod,
+                localWebUrl = localWebUrl
             )
 
             AuthQrLoginPane(
                 modifier = Modifier
-                    .width(460.dp)
+                    .width(480.dp)
                     .fillMaxHeight()
                     .background(AuthPaneBackground)
                     .drawBehind {
@@ -210,7 +269,16 @@ fun AuthQrSignInScreen(
                 uiState = uiState,
                 isSignedIn = isSignedIn,
                 isOnboardingMode = isOnboardingMode,
-                useEmailLogin = useEmailLogin,
+                signInMethod = signInMethod,
+                onSelectMethod = { newMethod ->
+                    viewModel.clearError()
+                    signInMethod = newMethod
+                    if (newMethod == TvSignInMethod.QR_CODE && uiState.qrLoginCode.isNullOrBlank()) {
+                        viewModel.startQrLogin()
+                    }
+                },
+                localWebUrl = localWebUrl,
+                localWebQrBitmap = localWebQrBitmap,
                 remainingMillis = remainingMillis,
                 onSignIn = viewModel::signIn,
                 onRefreshOrSignOut = {
@@ -261,7 +329,8 @@ private fun AuthQrBrandPanel(
     modifier: Modifier,
     isSignedIn: Boolean,
     fullAccount: AuthState.FullAccount?,
-    useEmailLogin: Boolean
+    signInMethod: TvSignInMethod,
+    localWebUrl: String?
 ) {
     Column(
         modifier = modifier,
@@ -284,23 +353,26 @@ private fun AuthQrBrandPanel(
                 fontWeight = FontWeight.SemiBold
             )
         )
-        if (isSignedIn || useEmailLogin) {
-            Spacer(modifier = Modifier.height(18.dp))
-            Text(
-                text = if (isSignedIn) {
-                    stringResource(R.string.auth_qr_connected)
-                } else {
-                    stringResource(R.string.auth_email_hint)
-                },
-                modifier = Modifier.widthIn(max = 400.dp),
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    color = AuthTextSecondary,
-                    fontSize = 17.sp,
-                    lineHeight = 26.sp,
-                    fontWeight = FontWeight.Normal
-                )
+        Spacer(modifier = Modifier.height(18.dp))
+        Text(
+            text = when {
+                isSignedIn -> stringResource(R.string.auth_qr_connected)
+                signInMethod == TvSignInMethod.WEB_BROWSER ->
+                    "Open the local address shown on the right in your computer or phone browser to sign in with your email and password."
+                signInMethod == TvSignInMethod.TV_EMAIL ->
+                    "Sign in directly on your Fire TV using your Nuvio account email and password."
+                !localWebUrl.isNullOrBlank() ->
+                    "Scan the QR code to link your Nuvio account, or open $localWebUrl on your computer to sign in with email and password."
+                else -> stringResource(R.string.auth_qr_scan_instruction)
+            },
+            modifier = Modifier.widthIn(max = 420.dp),
+            style = MaterialTheme.typography.bodyLarge.copy(
+                color = AuthTextSecondary,
+                fontSize = 16.sp,
+                lineHeight = 24.sp,
+                fontWeight = FontWeight.Normal
             )
-        }
+        )
         if (isSignedIn && fullAccount != null) {
             Spacer(modifier = Modifier.height(24.dp))
             Text(
@@ -324,36 +396,50 @@ private fun AuthQrLoginPane(
     uiState: AccountUiState,
     isSignedIn: Boolean,
     isOnboardingMode: Boolean,
-    useEmailLogin: Boolean,
+    signInMethod: TvSignInMethod,
+    onSelectMethod: (TvSignInMethod) -> Unit,
+    localWebUrl: String?,
+    localWebQrBitmap: Bitmap?,
     remainingMillis: Long,
     onSignIn: (String, String) -> Unit,
     onRefreshOrSignOut: () -> Unit,
     onBackOrContinue: () -> Unit,
     initialFocusRequester: FocusRequester
 ) {
+    val useEmailLogin = signInMethod == TvSignInMethod.TV_EMAIL
+    val useWebLogin = signInMethod == TvSignInMethod.WEB_BROWSER
+    val useQrLogin = signInMethod == TvSignInMethod.QR_CODE
     val focusEmail = useEmailLogin && !isSignedIn
     val focusMainAction = !focusEmail && !uiState.isLoading
+
     Column(
-        modifier = modifier.padding(horizontal = 48.dp),
+        modifier = modifier.padding(horizontal = 36.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
+        if (!isSignedIn) {
+            AuthSignInMethodTabs(
+                selectedMethod = signInMethod,
+                onSelectMethod = onSelectMethod
+            )
+            Spacer(modifier = Modifier.height(18.dp))
+        }
+
         Text(
-            text = if (isSignedIn) {
-                stringResource(R.string.auth_qr_synced_data)
-            } else if (useEmailLogin) {
-                stringResource(R.string.auth_email_instruction)
-            } else {
-                stringResource(R.string.auth_qr_scan_instruction)
+            text = when {
+                isSignedIn -> stringResource(R.string.auth_qr_synced_data)
+                useEmailLogin -> stringResource(R.string.auth_email_instruction)
+                useWebLogin -> "Enter this URL in your PC or phone browser (same Wi-Fi) to sign in with Email & Password:"
+                else -> stringResource(R.string.auth_qr_scan_instruction)
             },
             style = MaterialTheme.typography.bodyLarge.copy(
                 color = AuthTextSecondary,
-                fontSize = 15.sp,
-                lineHeight = 21.sp
+                fontSize = 14.sp,
+                lineHeight = 20.sp
             ),
             textAlign = TextAlign.Center
         )
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         if (isSignedIn && !isOnboardingMode) {
             AccountConnectedStatsStrip(
@@ -372,16 +458,26 @@ private fun AuthQrLoginPane(
                 onSignIn = onSignIn,
                 initialFocusRequester = initialFocusRequester
             )
+        } else if (useWebLogin) {
+            AuthLocalWebLoginBlock(
+                localWebUrl = localWebUrl,
+                localWebQrBitmap = localWebQrBitmap,
+                uiState = uiState
+            )
         } else {
-            AuthQrCodeBlock(uiState = uiState, remainingMillis = remainingMillis)
+            AuthQrCodeBlock(
+                uiState = uiState,
+                remainingMillis = remainingMillis,
+                localWebUrl = localWebUrl
+            )
         }
 
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(22.dp))
         Row(
             horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (isSignedIn || !useEmailLogin) {
+            if (isSignedIn || useQrLogin) {
                 Button(
                     onClick = onRefreshOrSignOut,
                     enabled = !uiState.isLoading,
@@ -394,8 +490,8 @@ private fun AuthQrLoginPane(
                         disabledContainerColor = AuthSecondaryButtonBackground.copy(alpha = 0.45f)
                     ),
                     border = ButtonDefaults.border(
-                        border = androidx.tv.material3.Border(
-                            border = androidx.compose.foundation.BorderStroke(1.dp, AuthSecondaryButtonBorder),
+                        border = Border(
+                            border = BorderStroke(1.dp, AuthSecondaryButtonBorder),
                             shape = RoundedCornerShape(16.dp)
                         )
                     )
@@ -411,7 +507,7 @@ private fun AuthQrLoginPane(
             }
             Button(
                 onClick = onBackOrContinue,
-                modifier = if (!focusEmail && !focusMainAction) {
+                modifier = if (useWebLogin || (!focusEmail && !focusMainAction)) {
                     Modifier.focusRequester(initialFocusRequester)
                 } else {
                     Modifier
@@ -423,8 +519,8 @@ private fun AuthQrLoginPane(
                     focusedContentColor = Color.Black
                 ),
                 border = ButtonDefaults.border(
-                    border = androidx.tv.material3.Border(
-                        border = androidx.compose.foundation.BorderStroke(1.dp, AuthSecondaryButtonBorder),
+                    border = Border(
+                        border = BorderStroke(1.dp, AuthSecondaryButtonBorder),
                         shape = RoundedCornerShape(16.dp)
                     )
                 )
@@ -437,6 +533,137 @@ private fun AuthQrLoginPane(
                     }
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun AuthSignInMethodTabs(
+    selectedMethod: TvSignInMethod,
+    onSelectMethod: (TvSignInMethod) -> Unit
+) {
+    val methods = listOf(
+        TvSignInMethod.QR_CODE to "QR Code",
+        TvSignInMethod.WEB_BROWSER to "PC / Browser",
+        TvSignInMethod.TV_EMAIL to "Email on TV"
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        methods.forEach { (method, label) ->
+            val isSelected = selectedMethod == method
+            Button(
+                onClick = { onSelectMethod(method) },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                colors = ButtonDefaults.colors(
+                    containerColor = if (isSelected) Color.White.copy(alpha = 0.18f) else AuthSecondaryButtonBackground,
+                    focusedContainerColor = Color.White,
+                    contentColor = if (isSelected) Color.White else AuthTextSecondary,
+                    focusedContentColor = Color.Black
+                ),
+                border = ButtonDefaults.border(
+                    border = Border(
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSelected) Color.White.copy(alpha = 0.45f) else AuthSecondaryButtonBorder
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                ),
+                shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                        fontSize = 12.sp
+                    ),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AuthLocalWebLoginBlock(
+    localWebUrl: String?,
+    localWebQrBitmap: Bitmap?,
+    uiState: AccountUiState
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        if (localWebQrBitmap != null) {
+            Image(
+                bitmap = localWebQrBitmap.asImageBitmap(),
+                contentDescription = "Local Web Login QR",
+                modifier = Modifier
+                    .size(188.dp)
+                    .background(Color.White, RoundedCornerShape(8.dp))
+                    .padding(8.dp),
+                contentScale = ContentScale.Fit
+            )
+            Spacer(modifier = Modifier.height(14.dp))
+        }
+
+        if (!localWebUrl.isNullOrBlank()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(AuthSecondaryButtonBackground, RoundedCornerShape(12.dp))
+                    .border(1.dp, AuthSecondaryButtonBorder, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = localWebUrl,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = Color(0xFF7CFF9B),
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Open in Chrome / Safari / Edge on your computer or phone",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AuthTextSecondary,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        } else {
+            StatusPill(
+                text = "Connect your Fire TV to Wi-Fi or Ethernet to use computer browser login, or switch to the Email on TV tab above.",
+                containerColor = AuthSecondaryButtonBackground,
+                contentColor = AuthTextSecondary
+            )
+        }
+
+        if (uiState.isLoading) {
+            Spacer(modifier = Modifier.height(12.dp))
+            StatusPill(
+                text = stringResource(R.string.auth_email_signing_in),
+                containerColor = AuthSecondaryButtonBackground,
+                contentColor = AuthTextPrimary
+            )
+        }
+
+        uiState.error?.takeIf { it.isNotBlank() }?.let { error ->
+            Spacer(modifier = Modifier.height(12.dp))
+            StatusPill(
+                text = error,
+                containerColor = Color(0x33C62828),
+                contentColor = Color(0xFFFF6E6E)
+            )
         }
     }
 }
@@ -522,7 +749,8 @@ private fun AuthEmailLoginForm(
 @Composable
 private fun AuthQrCodeBlock(
     uiState: AccountUiState,
-    remainingMillis: Long
+    remainingMillis: Long,
+    localWebUrl: String? = null
 ) {
     val qrBitmap = uiState.qrLoginBitmap
     if (qrBitmap != null) {
@@ -530,7 +758,7 @@ private fun AuthQrCodeBlock(
             bitmap = qrBitmap.asImageBitmap(),
             contentDescription = stringResource(R.string.cd_qr_login),
             modifier = Modifier
-                .size(206.dp)
+                .size(192.dp)
                 .background(Color.White, RoundedCornerShape(8.dp))
                 .padding(8.dp),
             contentScale = ContentScale.Fit
@@ -538,7 +766,7 @@ private fun AuthQrCodeBlock(
     } else {
         Box(
             modifier = Modifier
-                .size(206.dp)
+                .size(192.dp)
                 .background(AuthSecondaryButtonBackground, RoundedCornerShape(8.dp))
                 .border(1.dp, AuthSecondaryButtonBorder, RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center
@@ -546,7 +774,8 @@ private fun AuthQrCodeBlock(
             Text(
                 text = if (uiState.isLoading) stringResource(R.string.auth_qr_generating) else stringResource(R.string.auth_qr_unavailable),
                 color = AuthTextSecondary,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 12.dp)
             )
         }
     }
@@ -559,12 +788,22 @@ private fun AuthQrCodeBlock(
         isLoading = uiState.isLoading
     )
 
-    Spacer(modifier = Modifier.height(12.dp))
+    if (!localWebUrl.isNullOrBlank()) {
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = "PC Email Login: $localWebUrl",
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+            color = Color(0xFF7CFF9B),
+            textAlign = TextAlign.Center
+        )
+    }
+
+    Spacer(modifier = Modifier.height(10.dp))
     AuthTermsAcknowledgement()
 
     val statusText = uiState.error ?: uiState.qrLoginStatus
     if (!statusText.isNullOrBlank()) {
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(10.dp))
         if (uiState.error != null) {
             StatusPill(
                 text = statusText,
@@ -599,14 +838,14 @@ private fun AuthQrManualCodeDetails(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         if (displayUri != null && displayCode != null) {
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(14.dp))
             Text(
                 text = stringResource(R.string.auth_qr_manual_instruction, displayVerificationUri(displayUri)),
                 style = MaterialTheme.typography.bodyMedium,
                 color = AuthTextSecondary,
                 textAlign = TextAlign.Center
             )
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = formatDeviceLoginCode(displayCode),
                 style = MaterialTheme.typography.headlineSmall.copy(
@@ -618,7 +857,7 @@ private fun AuthQrManualCodeDetails(
                 textAlign = TextAlign.Center
             )
             if (expiresAtMillis != null) {
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = stringResource(R.string.auth_qr_expires, formatDuration(remainingMillis)),
                     style = MaterialTheme.typography.bodySmall,
@@ -627,7 +866,7 @@ private fun AuthQrManualCodeDetails(
             }
         } else if (isLoading) {
             val shimmerBrush = rememberShimmerBrush(backdropAware = true)
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(14.dp))
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -636,7 +875,7 @@ private fun AuthQrManualCodeDetails(
             ) {
                 SkeletonBar(width = 238.dp, height = 12.dp, brush = shimmerBrush, cornerRadius = 6.dp)
             }
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -644,15 +883,6 @@ private fun AuthQrManualCodeDetails(
                 contentAlignment = Alignment.Center
             ) {
                 SkeletonBar(width = 116.dp, height = 22.dp, brush = shimmerBrush, cornerRadius = 8.dp)
-            }
-            Spacer(modifier = Modifier.height(6.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(16.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                SkeletonBar(width = 84.dp, height = 8.dp, brush = shimmerBrush, cornerRadius = 4.dp)
             }
         }
     }
