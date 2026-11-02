@@ -322,7 +322,7 @@ class NewDetailsViewModel @Inject constructor(
         val isSeries = meta.type == ContentType.SERIES || meta.videos.isNotEmpty()
         val targetVideo = if (isSeries) {
             nextToWatch?.let { ntw ->
-                meta.videos.firstOrNull { it.id == ntw.videoId || (it.season == ntw.season && it.episode == ntw.episode) }
+                meta.videos.firstOrNull { it.id == ntw.nextVideoId || (it.season == ntw.nextSeason && it.episode == ntw.nextEpisode) }
             } ?: meta.videos.firstOrNull { (it.season ?: 0) > 0 } ?: meta.videos.firstOrNull()
         } else null
 

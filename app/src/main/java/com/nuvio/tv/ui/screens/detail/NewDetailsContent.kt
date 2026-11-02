@@ -302,7 +302,7 @@ internal fun NewDetailsContent(
     onPosterLongPress: (MetaPreview) -> Unit
 ) {
     LaunchedEffect(meta.id) { extras.bind(meta) }
-    LaunchedEffect(meta.id, state.nextToWatch?.videoId, state.nextToWatch?.season, state.nextToWatch?.episode) {
+    LaunchedEffect(meta.id, state.nextToWatch?.nextVideoId, state.nextToWatch?.nextSeason, state.nextToWatch?.nextEpisode) {
         extras.observePreselectedStream(meta, state.nextToWatch)
     }
     val ratings by extras.ratings.collectAsStateWithLifecycle()
