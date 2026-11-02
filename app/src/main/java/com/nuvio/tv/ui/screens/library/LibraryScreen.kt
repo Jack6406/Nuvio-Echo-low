@@ -754,7 +754,7 @@ private fun DeleteBinDialog(bin: Bin, onConfirm: () -> Unit, onDismiss: () -> Un
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)) {
             BinsTextPill(stringResource(R.string.action_cancel), selected = true, requester = cancel, onClick = onDismiss)
-            BinsTextPill(stringResource(R.string.bins_delete_button), selected = false, danger = true, onClick = onConfirm)
+            BinsTextPill(stringResource(R.string.action_delete), selected = false, requester = remember { FocusRequester() }, onClick = onConfirm)
         }
     }
 }
@@ -765,10 +765,11 @@ private fun sortLabel(sort: BinSort): String = sortLabelText(sort)
 @Composable
 private fun sortLabelText(sort: BinSort): String = stringResource(
     when (sort) {
-        BinSort.RECENTLY_VIEWED -> R.string.bins_sort_recently_viewed
-        BinSort.RECENTLY_ADDED -> R.string.bins_sort_recently_added
-        BinSort.NAME_ASC -> R.string.bins_sort_name_asc
-        BinSort.NAME_DESC -> R.string.bins_sort_name_desc
         BinSort.CUSTOM -> R.string.bins_sort_custom
+        BinSort.RECENTLY_VIEWED -> R.string.bins_sort_recent
+        BinSort.ADDED_NEWEST -> R.string.library_sort_added_desc
+        BinSort.ADDED_OLDEST -> R.string.library_sort_added_asc
+        BinSort.TITLE_AZ -> R.string.library_sort_title_asc
+        BinSort.TITLE_ZA -> R.string.library_sort_title_desc
     }
 )
