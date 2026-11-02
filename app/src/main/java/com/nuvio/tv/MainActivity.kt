@@ -609,7 +609,7 @@ open class MainActivity : ComponentActivity() {
                     LocalFastHorizontalNavigationEnabled provides mainUiPrefs.fastHorizontalNavigationEnabled,
                     LocalRecompositionHighlighterEnabled provides highlighterEnabled,
                     LocalCardDepthStyle provides mainUiPrefs.cardDepthStyle,
-                    LocalLandscapePosterMode provides mainUiPrefs.landscapePosterMode,
+                    LocalLandscapePosterMode provides false,
                     LocalAlwaysBackdropWithLogo provides mainUiPrefs.alwaysBackdropWithLogo,
                     LocalMemberAccess provides mainUiPrefs.memberAccess,
                     com.nuvio.tv.core.player.LocalTrailerPlayerPool provides trailerPlayerPool,

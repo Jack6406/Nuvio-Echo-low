@@ -43,7 +43,7 @@ object MdbListModule {
     @Provides
     @Singleton
     fun configuration(): MdbListConfiguration = MdbListConfiguration(
-        clientId = BuildConfig.MDBLIST_CLIENT_ID,
+        clientId = com.nuvio.tv.core.apikeys.TrackingClientIds.mdbListClientId,
         appVersion = BuildConfig.VERSION_NAME
     )
 

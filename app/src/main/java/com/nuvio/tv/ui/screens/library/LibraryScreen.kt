@@ -69,7 +69,8 @@ import com.nuvio.tv.ui.screens.home.HeroBackdropState
 import com.nuvio.tv.ui.theme.NuvioTheme
 import kotlinx.coroutines.delay
 
-private enum class LibraryTab { Bins, Cloud }
+private enum class LibraryTab { Classic, Bins, Cloud }
+private enum class ClassicMediaFilter { ALL, MOVIES, SERIES }
 
 private sealed interface LibraryOverlay {
     data class Sort(val anchor: Rect) : LibraryOverlay
@@ -90,8 +91,8 @@ private val ScreenPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 28.d
 private val GridGap = 24.dp
 
 /**
- * The Library: Bins (folders the viewer makes and names) and Cloud. Bins sort by the Sort pill or by hand
- * (Custom order: pick one, then pick another to swap them); the star marks the default bin.
+ * The Library: Classic Library (direct 2:3 Portrait Poster Grid with All / Movies / Series filters),
+ * Bins (custom folders), and Cloud.
  */
 @Composable
 fun LibraryScreen(
@@ -103,18 +104,31 @@ fun LibraryScreen(
     val state by binsViewModel.uiState.collectAsState()
     val message by binsViewModel.message.collectAsState()
     val cloudState by cloudViewModel.uiState.collectAsState()
-    var tab by rememberSaveable { mutableStateOf(LibraryTab.Bins) }
+    var tab by rememberSaveable { mutableStateOf(LibraryTab.Classic) }
+    var classicFilter by rememberSaveable { mutableStateOf(ClassicMediaFilter.ALL) }
     var overlay by remember { mutableStateOf<LibraryOverlay?>(null) }
     var rootOffset by remember { mutableStateOf(Offset.Zero) }
     var sortBounds by remember { mutableStateOf(Rect.Zero) }
     var lastFocused by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingFocus by remember { mutableStateOf<String?>(null) }
-    // After a swap, focus follows the moved bin to where it was put.
     var refocusAfterSwap by remember { mutableStateOf<String?>(null) }
     val focus = remember { FocusKeys() }
+    val classicGrid = rememberLazyGridState()
     val binsGrid = rememberLazyGridState()
     val titlesGrid = remember(state.openBin?.id) { LazyGridState() }
     val contentFocus = LocalContentFocusRequester.current
+
+    val filteredClassicTitles = remember(state.allTitles, classicFilter) {
+        when (classicFilter) {
+            ClassicMediaFilter.ALL -> state.allTitles
+            ClassicMediaFilter.MOVIES -> state.allTitles.filter {
+                !it.entry.type.equals("series", true) && !it.entry.type.equals("tv", true)
+            }
+            ClassicMediaFilter.SERIES -> state.allTitles.filter {
+                it.entry.type.equals("series", true) || it.entry.type.equals("tv", true)
+            }
+        }
+    }
 
     fun local(rect: Rect): Rect = rect.translate(-rootOffset)
     fun dismissOverlay(returnTo: String?) {
@@ -130,21 +144,25 @@ fun LibraryScreen(
         }
     }
 
-    // First focus once the bins are in: where it was (coming back from a title), else the first bin, else +.
     LaunchedEffect(state.loaded) {
         if (!state.loaded || pendingFocus != null) return@LaunchedEffect
-        pendingFocus = lastFocused?.takeIf { tab == LibraryTab.Bins }
-            ?: when {
-                tab == LibraryTab.Cloud -> "pill:cloud"
-                state.openBin != null -> state.openTitles.firstOrNull()?.let { "title:${it.entry.key}" } ?: "pill:sort"
-                else -> state.bins.firstOrNull()?.let { "bin:${it.id}" } ?: "pill:plus"
+        pendingFocus = lastFocused?.takeIf { tab != LibraryTab.Cloud }
+            ?: when (tab) {
+                LibraryTab.Classic -> filteredClassicTitles.firstOrNull()?.let { "classic:${it.entry.key}" } ?: "pill:classic"
+                LibraryTab.Cloud -> "pill:cloud"
+                LibraryTab.Bins -> if (state.openBin != null) {
+                    state.openTitles.firstOrNull()?.let { "title:${it.entry.key}" } ?: "pill:sort"
+                } else {
+                    state.bins.firstOrNull()?.let { "bin:${it.id}" } ?: "pill:plus"
+                }
             }
     }
 
-    // Moves focus to [pendingFocus], scrolling its row into view first when it's off screen.
-    LaunchedEffect(pendingFocus, state.bins, state.openTitles, tab) {
+    LaunchedEffect(pendingFocus, state.bins, state.openTitles, filteredClassicTitles, tab) {
         val key = pendingFocus ?: return@LaunchedEffect
         val (grid, index) = when {
+            key.startsWith("classic:") ->
+                classicGrid to filteredClassicTitles.indexOfFirst { it.entry.key == key.removePrefix("classic:") }.let { if (it < 0) -1 else it + 1 }
             key.startsWith("bin:") || key.startsWith("star:") ->
                 binsGrid to state.bins.indexOfFirst { it.id == key.substringAfter(':') }.let { if (it < 0) -1 else it + 1 }
             key.startsWith("title:") ->
@@ -174,6 +192,8 @@ fun LibraryScreen(
     val header: @Composable () -> Unit = {
         LibraryHeader(
             tab = tab,
+            classicFilter = classicFilter,
+            onClassicFilter = { classicFilter = it },
             state = state,
             sortLabel = sortLabel,
             focus = focus,
@@ -181,7 +201,11 @@ fun LibraryScreen(
             onTab = { selected ->
                 if (selected != tab) {
                     tab = selected
-                    pendingFocus = if (selected == LibraryTab.Cloud) "pill:cloud" else "pill:bins"
+                    pendingFocus = when (selected) {
+                        LibraryTab.Classic -> "pill:classic"
+                        LibraryTab.Bins -> "pill:bins"
+                        LibraryTab.Cloud -> "pill:cloud"
+                    }
                 } else if (selected == LibraryTab.Bins && state.openBin != null) {
                     val closing = state.openBin
                     binsViewModel.closeBin()
@@ -234,15 +258,16 @@ fun LibraryScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .focusRequester(contentFocus)
-                // Entering the screen (from the menu, or one of our own requests) lands on what's asked for, else where
-                // focus last was, else the first bin. Read when focus enters, not when composed: focusRestorer's fixed
-                // fallback was a frame stale and sent the menu's hand-off to the Bins pill.
                 .focusProperties {
                     onEnter = {
-                        val key = pendingFocus ?: lastFocused?.takeIf { tab == LibraryTab.Bins } ?: when {
-                            tab == LibraryTab.Cloud -> "pill:cloud"
-                            state.openBin != null -> state.openTitles.firstOrNull()?.let { "title:${it.entry.key}" } ?: "pill:sort"
-                            else -> state.bins.firstOrNull()?.let { "bin:${it.id}" } ?: "pill:plus"
+                        val key = pendingFocus ?: lastFocused?.takeIf { tab != LibraryTab.Cloud } ?: when (tab) {
+                            LibraryTab.Classic -> filteredClassicTitles.firstOrNull()?.let { "classic:${it.entry.key}" } ?: "pill:classic"
+                            LibraryTab.Cloud -> "pill:cloud"
+                            LibraryTab.Bins -> if (state.openBin != null) {
+                                state.openTitles.firstOrNull()?.let { "title:${it.entry.key}" } ?: "pill:sort"
+                            } else {
+                                state.bins.firstOrNull()?.let { "bin:${it.id}" } ?: "pill:plus"
+                            }
                         }
                         runCatching { focus[key].requestFocus() }
                     }
@@ -257,6 +282,29 @@ fun LibraryScreen(
                     onPlaybackResolved = onCloudPlaybackResolved,
                     contentPadding = ScreenPadding,
                     modifier = Modifier.fillMaxSize()
+                )
+                tab == LibraryTab.Classic -> ClassicLibraryPortraitGrid(
+                    titles = filteredClassicTitles,
+                    state = state,
+                    gridState = classicGrid,
+                    header = header,
+                    focus = focus,
+                    onFocused = { lastFocused = it },
+                    onClick = { title ->
+                        val owningBin = state.bins.firstOrNull { b -> b.entries.any { it.key == title.entry.key } }
+                        if (owningBin != null) {
+                            binsViewModel.onTitleOpened(owningBin, title)
+                        }
+                        HeroBackdropState.update(binsViewModel.cachedBackdrop(title))
+                        onNavigateToDetail(title.entry.id, title.entry.type, title.entry.addonBaseUrl)
+                    },
+                    onLongClick = { title, anchor ->
+                        val owningBin = state.bins.firstOrNull { b -> b.entries.any { it.key == title.entry.key } }
+                        if (owningBin != null) {
+                            overlay = LibraryOverlay.TitleOptions(owningBin, title, local(anchor))
+                        }
+                    },
+                    onPrefetch = { binsViewModel.prefetch(it.entry) }
                 )
                 state.openBin != null -> {
                     val bin = state.openBin!!
@@ -352,16 +400,20 @@ fun LibraryScreen(
                         onNavigateToDetail(current.title.entry.id, current.title.entry.type, current.title.entry.addonBaseUrl)
                     },
                     BinMenuItem(stringResource(R.string.bins_title_remove, current.bin.name)) {
-                        val titles = state.openTitles
+                        val titles = if (tab == LibraryTab.Classic) filteredClassicTitles else state.openTitles
+                        val prefix = if (tab == LibraryTab.Classic) "classic:" else "title:"
                         val at = titles.indexOfFirst { it.entry.key == current.title.entry.key }
                         val next = titles.getOrNull(at + 1) ?: titles.getOrNull(at - 1)
                         binsViewModel.removeTitle(current.bin, current.title)
-                        dismissOverlay(next?.let { "title:${it.entry.key}" } ?: "pill:sort")
+                        dismissOverlay(next?.let { "$prefix${it.entry.key}" } ?: "pill:sort")
                     }
                 ),
                 initialIndex = 0,
                 openedByHold = true,
-                onDismiss = { dismissOverlay("title:${current.title.entry.key}") }
+                onDismiss = {
+                    val prefix = if (tab == LibraryTab.Classic) "classic:" else "title:"
+                    dismissOverlay("$prefix${current.title.entry.key}")
+                }
             )
             LibraryOverlay.Create -> BinNameDialog(
                 title = stringResource(R.string.bins_name_title),
@@ -398,6 +450,8 @@ fun LibraryScreen(
 @Composable
 private fun LibraryHeader(
     tab: LibraryTab,
+    classicFilter: ClassicMediaFilter,
+    onClassicFilter: (ClassicMediaFilter) -> Unit,
     state: BinsUiState,
     sortLabel: String,
     focus: FocusKeys,
@@ -413,9 +467,12 @@ private fun LibraryHeader(
     Column(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
         Text(stringResource(R.string.library_title), color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(14.dp))
-        // Right stops at the last pill instead of dropping into the grid below.
         val endOfRow = Modifier.focusProperties { right = FocusRequester.Cancel }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            BinsTextPill(
+                "Library", selected = tab == LibraryTab.Classic, requester = focus["pill:classic"],
+                onClick = { onTab(LibraryTab.Classic) }
+            )
             BinsTextPill(
                 stringResource(R.string.bins_tab), selected = tab == LibraryTab.Bins, requester = focus["pill:bins"],
                 onClick = { onTab(LibraryTab.Bins) }
@@ -424,7 +481,21 @@ private fun LibraryHeader(
                 stringResource(R.string.library_source_cloud), selected = tab == LibraryTab.Cloud, requester = focus["pill:cloud"],
                 onClick = { onTab(LibraryTab.Cloud) }
             )
-            if (tab == LibraryTab.Bins) {
+            if (tab == LibraryTab.Classic) {
+                BinsTextPill(
+                    "All", selected = classicFilter == ClassicMediaFilter.ALL, requester = focus["pill:filter_all"],
+                    onClick = { onClassicFilter(ClassicMediaFilter.ALL) }
+                )
+                BinsTextPill(
+                    "Movies", selected = classicFilter == ClassicMediaFilter.MOVIES, requester = focus["pill:filter_movies"],
+                    onClick = { onClassicFilter(ClassicMediaFilter.MOVIES) }
+                )
+                BinsTextPill(
+                    "Series", selected = classicFilter == ClassicMediaFilter.SERIES, requester = focus["pill:filter_series"],
+                    onClick = { onClassicFilter(ClassicMediaFilter.SERIES) }
+                )
+                BinsSortPill(sortLabel, focus["pill:sort"], onClick = onSort, onBounds = onSortBounds)
+            } else if (tab == LibraryTab.Bins) {
                 BinsSortPill(sortLabel, focus["pill:sort"], onClick = onSort, onBounds = onSortBounds)
                 BinsIconPill(
                     icon = CustomOrderIcon,
@@ -472,6 +543,72 @@ private fun LibraryHeader(
 }
 
 @Composable
+private fun ClassicLibraryPortraitGrid(
+    titles: List<BinTitle>,
+    state: BinsUiState,
+    gridState: LazyGridState,
+    header: @Composable () -> Unit,
+    focus: FocusKeys,
+    onFocused: (String) -> Unit,
+    onClick: (BinTitle) -> Unit,
+    onLongClick: (BinTitle, Rect) -> Unit,
+    onPrefetch: (BinTitle) -> Unit
+) {
+    val style = PosterCardDefaults.Style.copy(
+        width = state.posterWidthDp.dp,
+        height = (state.posterWidthDp * 3 / 2).dp,
+        cornerRadius = state.posterCornerDp.dp
+    )
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = style.width),
+        state = gridState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = ScreenPadding,
+        horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md),
+        verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.lg)
+    ) {
+        item(key = "header", span = { GridItemSpan(maxLineSpan) }) { header() }
+        if (state.loaded && titles.isEmpty()) {
+            item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
+                EmptyScreenState(
+                    title = stringResource(R.string.bins_empty_title),
+                    subtitle = stringResource(R.string.bins_empty_subtitle),
+                    icon = Icons.Outlined.Inventory2,
+                    height = 260.dp
+                )
+            }
+        }
+        items(titles, key = { it.entry.key }) { title ->
+            val key = title.entry.key
+            var bounds by remember { mutableStateOf(Rect.Zero) }
+            val series = title.entry.type.equals("series", true) || title.entry.type.equals("tv", true)
+            Box(
+                Modifier
+                    .onGloballyPositioned { bounds = it.boundsInRoot() }
+                    .animateItem(
+                        fadeInSpec = null, fadeOutSpec = null,
+                        placementSpec = spring(dampingRatio = 1f, stiffness = Spring.StiffnessMediumLow, visibilityThreshold = IntOffset.VisibilityThreshold)
+                    )
+            ) {
+                GridContentCard(
+                    item = title.preview,
+                    posterCardStyle = style,
+                    isWatched = if (series) title.entry.id in state.watchedSeriesIds else title.entry.id in state.watchedMovieIds,
+                    focusRequester = focus["classic:$key"],
+                    showLabel = true,
+                    onFocused = {
+                        onFocused("classic:$key")
+                        onPrefetch(title)
+                    },
+                    onClick = { onClick(title) },
+                    onLongPress = { onLongClick(title, bounds) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun BinsGrid(
     state: BinsUiState,
     gridState: LazyGridState,
@@ -482,7 +619,6 @@ private fun BinsGrid(
     onLongClick: (Bin, Rect) -> Unit,
     onStar: (Bin) -> Unit
 ) {
-    // Each bin is as wide as two poster cards side by side.
     val binWidth = (state.posterWidthDp * 2).dp
     val binHeight = binWidth * 0.595f
     LazyVerticalGrid(
@@ -618,7 +754,7 @@ private fun DeleteBinDialog(bin: Bin, onConfirm: () -> Unit, onDismiss: () -> Un
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)) {
             BinsTextPill(stringResource(R.string.action_cancel), selected = true, requester = cancel, onClick = onDismiss)
-            BinsTextPill(stringResource(R.string.action_delete), selected = false, requester = remember { FocusRequester() }, onClick = onConfirm)
+            BinsTextPill(stringResource(R.string.bins_delete_button), selected = false, danger = true, onClick = onConfirm)
         }
     }
 }
@@ -629,11 +765,10 @@ private fun sortLabel(sort: BinSort): String = sortLabelText(sort)
 @Composable
 private fun sortLabelText(sort: BinSort): String = stringResource(
     when (sort) {
+        BinSort.RECENTLY_VIEWED -> R.string.bins_sort_recently_viewed
+        BinSort.RECENTLY_ADDED -> R.string.bins_sort_recently_added
+        BinSort.NAME_ASC -> R.string.bins_sort_name_asc
+        BinSort.NAME_DESC -> R.string.bins_sort_name_desc
         BinSort.CUSTOM -> R.string.bins_sort_custom
-        BinSort.RECENTLY_VIEWED -> R.string.bins_sort_recent
-        BinSort.ADDED_NEWEST -> R.string.library_sort_added_desc
-        BinSort.ADDED_OLDEST -> R.string.library_sort_added_asc
-        BinSort.TITLE_AZ -> R.string.library_sort_title_asc
-        BinSort.TITLE_ZA -> R.string.library_sort_title_desc
     }
 )

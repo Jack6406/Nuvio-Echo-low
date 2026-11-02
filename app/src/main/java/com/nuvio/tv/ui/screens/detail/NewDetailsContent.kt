@@ -302,6 +302,9 @@ internal fun NewDetailsContent(
     onPosterLongPress: (MetaPreview) -> Unit
 ) {
     LaunchedEffect(meta.id) { extras.bind(meta) }
+    LaunchedEffect(meta.id, state.nextToWatch?.videoId, state.nextToWatch?.season, state.nextToWatch?.episode) {
+        extras.observePreselectedStream(meta, state.nextToWatch)
+    }
     val ratings by extras.ratings.collectAsStateWithLifecycle()
     val titleReviews by extras.titleReviews.collectAsStateWithLifecycle()
     val episodeReviews by extras.episodeReviews.collectAsStateWithLifecycle()
@@ -311,6 +314,7 @@ internal fun NewDetailsContent(
     val credits by extras.credits.collectAsStateWithLifecycle()
     val customBackdrops by extras.customBackdrops.collectAsStateWithLifecycle()
     val backdropPickerState by extras.backdropPicker.collectAsStateWithLifecycle()
+    val preselectedStream by extras.preselectedStream.collectAsStateWithLifecycle()
     val customBackdropUrl = remember(customBackdrops, meta.id, meta.imdbId) {
         extras.resolveCustomBackdrop(meta)
     }
@@ -566,6 +570,7 @@ internal fun NewDetailsContent(
                     castItemFocus = castItemFocus,
                     backdropItemFocus = backdropItemFocus,
                     hasCustomBackdrop = customBackdropUrl != null,
+                    preselectedStream = preselectedStream,
                     titleRating = titleRating,
                     watched = watched,
                     watchedPending = state.isMovieWatchedPending,
@@ -598,6 +603,19 @@ internal fun NewDetailsContent(
                         }
                     }
                 )
+            }
+            item(key = "nd_ratings_scorecard", contentType = "nd_ratings_scorecard") {
+                RowScroll(rowSpec) {
+                    NdRatingsScorecardSection(
+                        meta = meta,
+                        isSeries = isSeries,
+                        tmdbRating = state.tmdbRating,
+                        mdbListRatings = state.mdbListRatings
+                    )
+                }
+            }
+            if (state.moreLikeThis.isEmpty() && state.collection.isEmpty()) {
+                // Keep spacing clean
             }
             if (state.moreLikeThis.isNotEmpty()) {
                 item(key = "nd_similar", contentType = "nd_row") {
@@ -775,6 +793,7 @@ private fun NdHero(
     castItemFocus: FocusRequester,
     backdropItemFocus: FocusRequester,
     hasCustomBackdrop: Boolean,
+    preselectedStream: PreselectedStreamInfo? = null,
     titleRating: TitleRating?,
     watched: Boolean,
     watchedPending: Boolean,
@@ -835,7 +854,7 @@ private fun NdHero(
                 Text(meta.name, color = Color.White, fontSize = 32.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold, maxLines = 2)
                 Spacer(Modifier.height(10.dp))
             }
-            NdMetaLines(meta = meta, isSeries = isSeries, tmdbRating = state.tmdbRating)
+            NdMetaLines(meta = meta, isSeries = isSeries, tmdbRating = state.tmdbRating, mdbListRatings = state.mdbListRatings)
             Spacer(Modifier.height(10.dp))
             NdSynopsis(
                 meta = meta,
@@ -887,6 +906,8 @@ private fun NdHero(
                     }
                     add(NdMenuItem(Icons.Outlined.Image, stringResource(R.string.nd_menu_backdrop), customBadge, backdropItemFocus, onOpenBackdrop))
                 }
+                NdPreselectedStreamBadgesRow(preselected = preselectedStream)
+                Spacer(Modifier.height(6.dp))
                 NdPlayMenu(
                     upFocus = likeFocus,
                     playLabel = playLabel,
@@ -906,7 +927,12 @@ private fun NdHero(
 }
 
 @Composable
-private fun NdMetaLines(meta: Meta, isSeries: Boolean, tmdbRating: Float?) {
+private fun NdMetaLines(
+    meta: Meta,
+    isSeries: Boolean,
+    tmdbRating: Float?,
+    mdbListRatings: com.nuvio.tv.domain.model.MDBListRatings? = null
+) {
     val context = LocalContext.current
     val line1 = remember(meta, isSeries) {
         buildList {
@@ -928,50 +954,13 @@ private fun NdMetaLines(meta: Meta, isSeries: Boolean, tmdbRating: Float?) {
         }
     }
     val cert = meta.ageRating?.trim()?.takeIf { it.isNotBlank() }
-    // A score of 0 means nobody has rated it yet (an unreleased title): leave it out.
-    val imdb = meta.imdbRating?.takeIf { it > 0f }
-    @Suppress("NAME_SHADOWING") val tmdbRating = tmdbRating?.takeIf { it > 0f }
-    if (cert != null || imdb != null || tmdbRating != null) {
-        Spacer(Modifier.height(6.dp))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (cert != null) {
-                Box(
-                    Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Color.Transparent)
-                        .drawBehind {
-                            drawRoundRect(
-                                text.copy(alpha = 0.55f),
-                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx()),
-                                style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx())
-                            )
-                        }
-                        .padding(horizontal = 5.dp)
-                ) { Text(cert, color = text, fontSize = 11.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium) }
-            }
-            if (imdb != null) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    ImdbRatingSourceLabel(
-                        logoModifier = Modifier.size(26.dp),
-                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
-                        textColor = text
-                    )
-                    Text(String.format(java.util.Locale.US, "%.1f", imdb), color = text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                }
-            }
-            if (tmdbRating != null) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    AsyncImage(
-                        model = remember(context) { ImageRequest.Builder(context).data(R.raw.mdblist_tmdb).build() },
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        contentScale = ContentScale.Fit
-                    )
-                    Text((tmdbRating * 10).toInt().toString(), color = text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                }
-            }
-        }
-    }
+    NdInlineAllRatingsRow(
+        cert = cert,
+        meta = meta,
+        isSeries = isSeries,
+        tmdbRating = tmdbRating?.takeIf { it > 0f },
+        mdbListRatings = mdbListRatings
+    )
 }
 
 @Composable

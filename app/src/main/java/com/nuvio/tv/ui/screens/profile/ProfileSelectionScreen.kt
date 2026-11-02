@@ -209,6 +209,7 @@ fun ProfileSelectionScreen(
     val activeProfileId by viewModel.activeProfileId.collectAsState()
     val avatarCatalog by viewModel.avatarCatalog.collectAsState()
     val profileBackgroundCatalog by viewModel.profileBackgroundCatalog.collectAsState()
+    val backdropPosters by viewModel.backdropPosters.collectAsState()
     val hasProfileBackgroundAccess by viewModel.hasProfileBackgroundAccess.collectAsState()
     val isCreating by viewModel.isCreating.collectAsState()
     val isSaving by viewModel.isSaving.collectAsState()
@@ -358,7 +359,8 @@ fun ProfileSelectionScreen(
 
         ProfileSelectionBackground(
             focusedAvatarColor = overlayProfileColor ?: focusedAvatarColor,
-            profileBackground = profileBackground
+            profileBackground = profileBackground,
+            backdropPosters = backdropPosters
         )
 
         AnimatedContent(
@@ -810,17 +812,14 @@ fun ProfileSelectionScreen(
 @Composable
 private fun ProfileSelectionBackground(
     focusedAvatarColor: Color,
-    profileBackground: ProfileBackgroundArtwork?
+    profileBackground: ProfileBackgroundArtwork?,
+    backdropPosters: List<String> = emptyList()
 ) {
     val animatedAvatarColor by animateColorAsState(
         targetValue = focusedAvatarColor,
         animationSpec = tween(durationMillis = 520),
         label = "focusedAvatarColor"
     )
-    // Use fixed dark colors so the gradient is consistent.
-    // Otherwise, profile selector and splash screen needs to know about user template
-    val halfFadeStrong = animatedAvatarColor.copy(alpha = 0.26f)
-    val halfFadeSoft = animatedAvatarColor.copy(alpha = 0.08f)
 
     AnimatedContent(
         targetState = profileBackground,
@@ -849,38 +848,118 @@ private fun ProfileSelectionBackground(
                 modifier = Modifier.fillMaxSize()
             )
             null -> {
-                // The colours Home's carousel last had, blurred and dimmed, as on Home and in Settings; the focused
-                // profile's colour glows over them from the top left.
-                com.nuvio.tv.ui.newlook.home.AmbientPageWash(
-                    url = com.nuvio.tv.ui.newlook.home.rememberLastAmbientUrl(),
+                ProfilePosterWallBackdrop(
+                    posters = backdropPosters,
+                    focusedAvatarColor = animatedAvatarColor,
                     modifier = Modifier.fillMaxSize()
                 )
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                        .background(
-                            brush = Brush.verticalGradient(
-                                colorStops = arrayOf(
-                                    0f to animatedAvatarColor.copy(alpha = 0.22f),
-                                    0.42f to animatedAvatarColor.copy(alpha = 0.08f),
-                                    1f to Color.Black.copy(alpha = 0.35f)
-                                )
-                            )
-                        )
-                        .background(
-                            brush = Brush.horizontalGradient(
-                                colorStops = arrayOf(
-                                    0f to halfFadeStrong,
-                                    0.45f to halfFadeSoft,
-                                    0.72f to Color.Transparent,
-                                    1f to Color.Transparent
-                                )
-                            )
-                        )
-                )
             }
+        }
+    }
+}
+
+@Composable
+private fun ProfilePosterWallBackdrop(
+    posters: List<String>,
+    focusedAvatarColor: Color,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val columns = 7
+    val rowsPerColumn = 4
+    val staggerOffsets = remember { listOf(-18.dp, -62.dp, -8.dp, -52.dp, -24.dp, -68.dp, -14.dp) }
+    val posterShape = remember { RoundedCornerShape(10.dp) }
+
+    Box(
+        modifier = modifier
+            .background(Color(0xFF060609))
+            .clip(RoundedCornerShape(0.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        if (posters.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        rotationZ = -12f
+                        scaleX = 1.28f
+                        scaleY = 1.28f
+                    },
+                horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                for (col in 0 until columns) {
+                    val colOffset = staggerOffsets[col % staggerOffsets.size]
+                    Column(
+                        modifier = Modifier.offset(y = colOffset),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        for (row in 0 until rowsPerColumn) {
+                            val posterIdx = (col * rowsPerColumn + row) % posters.size
+                            val posterUrl = posters[posterIdx]
+                            val request = remember(context, posterUrl) {
+                                coil3.request.ImageRequest.Builder(context)
+                                    .data(posterUrl)
+                                    .size(180, 270)
+                                    .memoryCacheKey("profile_wall_${posterUrl}_180x270")
+                                    .build()
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .width(136.dp)
+                                    .height(204.dp)
+                                    .clip(posterShape)
+                                    .background(Color(0xFF14141A), posterShape)
+                                    .border(0.5.dp, Color.White.copy(alpha = 0.08f), posterShape)
+                            ) {
+                                coil3.compose.AsyncImage(
+                                    model = request,
+                                    contentDescription = null,
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Dark radial vignette + top/bottom edge scrims + focused profile bottom color glow matching 1000041682.jpg
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+            drawRect(color = Color.Black.copy(alpha = 0.56f))
+            drawRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color.Black.copy(alpha = 0.36f),
+                        Color.Black.copy(alpha = 0.78f)
+                    ),
+                    center = Offset(size.width * 0.5f, size.height * 0.48f),
+                    radius = size.maxDimension * 0.62f
+                )
+            )
+            drawRect(
+                brush = Brush.verticalGradient(
+                    0f to Color.Black.copy(alpha = 0.72f),
+                    0.22f to Color.Transparent,
+                    0.75f to Color.Transparent,
+                    1f to Color.Black.copy(alpha = 0.78f)
+                )
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        focusedAvatarColor.copy(alpha = 0.40f),
+                        focusedAvatarColor.copy(alpha = 0.14f),
+                        Color.Transparent
+                    ),
+                    center = Offset(size.width * 0.5f, size.height * 0.96f),
+                    radius = size.maxDimension * 0.46f
+                ),
+                center = Offset(size.width * 0.5f, size.height * 0.96f),
+                radius = size.maxDimension * 0.46f
+            )
         }
     }
 }

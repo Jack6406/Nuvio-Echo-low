@@ -72,8 +72,15 @@ class NewDetailsViewModel @Inject constructor(
     private val tmdbMetadataService: TmdbMetadataService,
     private val tmdbSettingsDataStore: TmdbSettingsDataStore,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
+    private val streamRepository: com.nuvio.tv.domain.repository.StreamRepository,
+    private val streamBadgePresentation: com.nuvio.tv.core.streams.StreamBadgePresentation,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
+
+    private val _preselectedStream = MutableStateFlow<PreselectedStreamInfo?>(null)
+    val preselectedStream: StateFlow<PreselectedStreamInfo?> = _preselectedStream.asStateFlow()
+    private var preselectedStreamKey: String? = null
+    private var preselectedStreamJob: kotlinx.coroutines.Job? = null
     private val itemId: String? = savedStateHandle["itemId"]
     private val itemType: String? = savedStateHandle["itemType"]
 
@@ -310,4 +317,98 @@ class NewDetailsViewModel @Inject constructor(
         val next = if (current == rating) null else rating
         viewModelScope.launch { ratingsStore.rateEpisode(meta.id, meta.apiType, meta.name, season, episode, next) }
     }
+
+    fun observePreselectedStream(meta: Meta, nextToWatch: com.nuvio.tv.domain.model.NextToWatch?) {
+        val isSeries = meta.type == ContentType.SERIES || meta.videos.isNotEmpty()
+        val targetVideo = if (isSeries) {
+            nextToWatch?.let { ntw ->
+                meta.videos.firstOrNull { it.id == ntw.videoId || (it.season == ntw.season && it.episode == ntw.episode) }
+            } ?: meta.videos.firstOrNull { (it.season ?: 0) > 0 } ?: meta.videos.firstOrNull()
+        } else null
+
+        val type = meta.apiType.ifBlank { itemType ?: if (isSeries) "series" else "movie" }
+        val videoId = if (isSeries) (targetVideo?.id ?: meta.id) else (itemId?.takeIf { it.isNotBlank() } ?: meta.id)
+        val season = if (isSeries) targetVideo?.season else null
+        val episode = if (isSeries) targetVideo?.episode else null
+        val key = "${type.lowercase()}|$videoId|${season ?: ""}|${episode ?: ""}"
+        if (preselectedStreamKey == key) return
+        preselectedStreamKey = key
+        _preselectedStream.value = null
+        preselectedStreamJob?.cancel()
+        preselectedStreamJob = viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                streamRepository.getStreamsFromAllAddons(
+                    type = type,
+                    videoId = videoId,
+                    season = season,
+                    episode = episode,
+                    speculative = true
+                ).collect { result ->
+                    if (result is com.nuvio.tv.core.network.NetworkResult.Success) {
+                        val groups = runCatching { streamBadgePresentation.apply(result.data) }.getOrDefault(result.data)
+                        val firstStream = groups.asSequence().flatMap { it.streams.asSequence() }.firstOrNull()
+                        if (firstStream != null) {
+                            _preselectedStream.value = buildPreselectedStreamInfo(firstStream)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun buildPreselectedStreamInfo(stream: com.nuvio.tv.domain.model.Stream): PreselectedStreamInfo {
+        val chips = mutableListOf<String>()
+        val text = buildString {
+            append(stream.name.orEmpty()).append(' ')
+            append(stream.title.orEmpty()).append(' ')
+            append(stream.description.orEmpty()).append(' ')
+            append(stream.behaviorHints?.filename.orEmpty())
+        }.lowercase()
+
+        com.nuvio.tv.core.streams.StreamQualityParser.parse(stream)?.label?.let { chips += it }
+            ?: when {
+                text.contains("2160p") || text.contains("4k") || text.contains("uhd") -> chips += "4K"
+                text.contains("1080p") -> chips += "1080p"
+                text.contains("720p") -> chips += "720p"
+            }
+
+        when {
+            text.contains("dolby vision") || Regex("\\b(dv|dovi)\\b").containsMatchIn(text) -> chips += "DV"
+            text.contains("hdr10+") || text.contains("hdr10plus") -> chips += "HDR10+"
+            text.contains("hdr10") || Regex("\\bhdr\\b").containsMatchIn(text) -> chips += "HDR"
+        }
+
+        when {
+            text.contains("remux") -> chips += "REMUX"
+            text.contains("av1") -> chips += "AV1"
+            text.contains("hevc") || text.contains("x265") || text.contains("h265") -> chips += "HEVC"
+        }
+
+        when {
+            text.contains("atmos") -> chips += "Atmos"
+            text.contains("truehd") -> chips += "TrueHD"
+            text.contains("dts-hd") || text.contains("dtshd") -> chips += "DTS-HD"
+            text.contains("7.1") -> chips += "7.1"
+            text.contains("5.1") -> chips += "5.1"
+        }
+
+        val sizeBytes = stream.behaviorHints?.videoSize
+        if (sizeBytes != null && sizeBytes > 0L) {
+            val gib = sizeBytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
+            if (gib >= 1.0) {
+                chips += "${kotlin.math.round(gib * 10.0) / 10.0} GB"
+            } else {
+                val mib = (sizeBytes.toDouble() / (1024.0 * 1024.0)).toInt()
+                if (mib > 0) chips += "$mib MB"
+            }
+        }
+
+        return PreselectedStreamInfo(
+            addonName = stream.addonName,
+            specChips = chips.distinct().take(5),
+            customBadges = stream.badges,
+            fileSizeBytes = sizeBytes
+        )
+    }
+
 }

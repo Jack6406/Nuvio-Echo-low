@@ -526,6 +526,7 @@ internal fun NewLookHomeContent(
     /** The card that holds focus (row key to item key), or null when none does. */
     var focusedCard by remember { mutableStateOf<Pair<String, String>?>(null) }
     var cwOptions by remember { mutableStateOf<ContinueWatchingItem?>(null) }
+    var cwPosterPickerItem by remember { mutableStateOf<ContinueWatchingItem?>(null) }
     /**
      * The poster that has opened out (row key to item key): focused for the expand delay. One state for the card's
      * opening and its trailer, so the trailer is asked for only once a poster opens, not for each one passed.
@@ -1203,7 +1204,18 @@ internal fun NewLookHomeContent(
             onPlayManually = {
                 cwOptions = null
                 onContinueWatchingPlayManually(item)
+            },
+            onChangePoster = {
+                cwOptions = null
+                cwPosterPickerItem = item
             }
+        )
+    }
+
+    cwPosterPickerItem?.let { pickerItem ->
+        com.nuvio.tv.ui.components.ContinueWatchingPosterPickerDialog(
+            item = pickerItem,
+            onDismiss = { cwPosterPickerItem = null }
         )
     }
 }
@@ -1584,17 +1596,28 @@ private fun RowCard(
         row.kind == RowKind.WIDE -> {
             val payload = item.payload as? ModernPayload.ContinueWatching
             val cw = payload?.item
-            val image = when (cw) {
+            val cwContentId = when (cw) {
+                is ContinueWatchingItem.InProgress -> cw.progress.contentId
+                is ContinueWatchingItem.NextUp -> cw.info.contentId
+                null -> item.metaPreview?.id
+            }
+            val customOverrides by com.nuvio.tv.data.local.CustomBackdropStore.reactiveOverrides.collectAsState()
+            val defaultImage = when (cw) {
                 is ContinueWatchingItem.InProgress -> cw.episodeThumbnail ?: cw.progress.backdrop ?: cw.progress.poster
                 is ContinueWatchingItem.NextUp -> cw.info.thumbnail ?: cw.info.backdrop ?: cw.info.poster
                 null -> item.imageUrl
             }
-            // In progress: the episode (no time left; the bar along the bottom shows how far in). Next up: its
-            // label ("New episode"...).
+            val image = cwContentId?.trim()?.let { customOverrides[it] } ?: defaultImage
             val episode = when (cw) {
                 is ContinueWatchingItem.InProgress -> item.subtitle?.takeIf { it.isNotBlank() && !it.equals(item.title, true) }
                 is ContinueWatchingItem.NextUp -> preview.secondaryHighlightText?.lowercase()?.replaceFirstChar { it.titlecase() }
                 null -> null
+            }
+            val minutesLeftText = (cw as? ContinueWatchingItem.InProgress)?.progress?.let { wp ->
+                if (wp.duration > wp.position && wp.duration > 0L) {
+                    val minsLeft = ((wp.duration - wp.position) / 60_000L).coerceAtLeast(1L)
+                    "${minsLeft}m left"
+                } else null
             }
             ContinueWatchingCard(
                 image = image,
@@ -1605,7 +1628,8 @@ private fun RowCard(
                 onClick = onClick,
                 onLongClick = onLongClick,
                 onFocusChanged = onFocusChanged,
-                modifier = modifier
+                modifier = modifier,
+                minutesLeftText = minutesLeftText
             )
         }
         row.kind == RowKind.POSTER -> PosterCard(

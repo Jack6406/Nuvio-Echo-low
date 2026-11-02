@@ -54,8 +54,27 @@ class ProfileSelectionViewModel @Inject constructor(
     memberAccessRepository: MemberAccessRepository,
     private val profileLockStateDataStore: ProfileLockStateDataStore,
     private val themeDataStore: com.nuvio.tv.data.local.ThemeDataStore,
-    private val customAvatarDataStore: CustomAvatarDataStore
+    private val customAvatarDataStore: CustomAvatarDataStore,
+    private val binsRepository: com.nuvio.tv.core.bins.BinsRepository,
+    private val watchProgressRepository: com.nuvio.tv.domain.repository.WatchProgressRepository
 ) : ViewModel() {
+
+    val backdropPosters: StateFlow<List<String>> = combine(
+        binsRepository.state,
+        watchProgressRepository.allProgress
+    ) { binsState, progressList ->
+        val userPosters = buildList {
+            binsState.bins.forEach { bin ->
+                bin.entries.forEach { entry ->
+                    entry.poster?.takeIf { it.isNotBlank() && !it.contains("/background/") }?.let(::add)
+                }
+            }
+            progressList.forEach { wp ->
+                wp.poster?.takeIf { it.isNotBlank() && !it.contains("/background/") }?.let(::add)
+            }
+        }.distinct()
+        (userPosters + DEFAULT_PORTRAIT_WALL_POSTERS).distinct().take(28)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, DEFAULT_PORTRAIT_WALL_POSTERS)
     val activeProfileId: StateFlow<Int> = profileManager.activeProfileId
     val profiles: StateFlow<List<UserProfile>> = profileManager.profiles
 
@@ -342,3 +361,34 @@ class ProfileSelectionViewModel @Inject constructor(
         }
     }
 }
+
+private val DEFAULT_PORTRAIT_WALL_POSTERS = listOf(
+    "https://images.metahub.space/poster/medium/tt0944947/img", // Game of Thrones
+    "https://images.metahub.space/poster/medium/tt0903747/img", // Breaking Bad
+    "https://images.metahub.space/poster/medium/tt4574334/img", // Stranger Things
+    "https://images.metahub.space/poster/medium/tt15239678/img", // Dune: Part Two
+    "https://images.metahub.space/poster/medium/tt15398776/img", // Oppenheimer
+    "https://images.metahub.space/poster/medium/tt0816692/img", // Interstellar
+    "https://images.metahub.space/poster/medium/tt11198330/img", // House of the Dragon
+    "https://images.metahub.space/poster/medium/tt3581920/img", // The Last of Us
+    "https://images.metahub.space/poster/medium/tt1375666/img", // Inception
+    "https://images.metahub.space/poster/medium/tt0468569/img", // The Dark Knight
+    "https://images.metahub.space/poster/medium/tt1877830/img", // The Batman
+    "https://images.metahub.space/poster/medium/tt1190634/img", // The Boys
+    "https://images.metahub.space/poster/medium/tt7366338/img", // Chernobyl
+    "https://images.metahub.space/poster/medium/tt11280740/img", // Severance
+    "https://images.metahub.space/poster/medium/tt14452776/img", // The Bear
+    "https://images.metahub.space/poster/medium/tt2788316/img", // Shogun
+    "https://images.metahub.space/poster/medium/tt13622776/img", // Fallout
+    "https://images.metahub.space/poster/medium/tt9362722/img", // Spider-Man: Across the Spider-Verse
+    "https://images.metahub.space/poster/medium/tt4154796/img", // Avengers: Endgame
+    "https://images.metahub.space/poster/medium/tt1745960/img", // Top Gun: Maverick
+    "https://images.metahub.space/poster/medium/tt6751668/img", // Parasite
+    "https://images.metahub.space/poster/medium/tt0133093/img", // The Matrix
+    "https://images.metahub.space/poster/medium/tt1856101/img", // Blade Runner 2049
+    "https://images.metahub.space/poster/medium/tt8388390/img", // Chucky
+    "https://images.metahub.space/poster/medium/tt7529770/img", // Miracle Workers
+    "https://images.metahub.space/poster/medium/tt8633478/img", // Run
+    "https://images.metahub.space/poster/medium/tt3032476/img", // Better Call Saul
+    "https://images.metahub.space/poster/medium/tt2861424/img"  // Rick and Morty
+)

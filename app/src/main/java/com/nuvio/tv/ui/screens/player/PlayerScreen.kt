@@ -2420,6 +2420,17 @@ private fun PlayerControlsOverlay(
                 )
         )
 
+        var showAccentPicker by remember { mutableStateOf(false) }
+        val playerAccentColor = rememberPlayerAccentColor()
+
+        // Top-left format square cards (Dolby ATMOS / Dolby VISION / HDR10+ / DTS-HD) matching Nuvio Legacy 2.0
+        NuvioLegacyTopLeftBadges(
+            uiState = uiState,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(start = NuvioTheme.spacing.xxl, top = NuvioTheme.spacing.xl)
+        )
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2489,33 +2500,43 @@ private fun PlayerControlsOverlay(
                         )
                     }
 
-                    val hasYear = !uiState.releaseYear.isNullOrBlank()
+                    val durationMinutes = (playbackTimeline.duration / 60_000L).toInt().takeIf { it > 0 }
+                    val yearAndRuntime = buildList {
+                        uiState.releaseYear?.takeIf { it.isNotBlank() }?.let(::add)
+                        durationMinutes?.let { add("$it min") }
+                    }.joinToString("  ·  ")
                     val showVia = !uiState.isPlaying && !uiState.currentStreamName.isNullOrBlank()
-                    val yearText = uiState.releaseYear.orEmpty()
 
-                    if (hasYear || showVia) {
-                        Column {
-                            if (hasYear) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            if (yearAndRuntime.isNotBlank()) {
                                 Text(
-                                    text = yearText,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color.White.copy(alpha = 0.68f)
+                                    text = yearAndRuntime,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium
+                                    ),
+                                    color = Color.White.copy(alpha = 0.72f)
                                 )
                             }
+                            NuvioLegacyInlineStreamBadges(uiState = uiState)
+                        }
 
-                            AnimatedVisibility(
-                                visible = showVia,
-                                enter = fadeIn(animationSpec = tween(durationMillis = 220)),
-                                exit = fadeOut(animationSpec = tween(durationMillis = NuvioMotion.tokens.durations.fast))
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.player_via, (uiState.currentStreamName ?: "").replace("\n", " · ")),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color.White.copy(alpha = 0.68f),
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
+                        AnimatedVisibility(
+                            visible = showVia,
+                            enter = fadeIn(animationSpec = tween(durationMillis = 220)),
+                            exit = fadeOut(animationSpec = tween(durationMillis = NuvioMotion.tokens.durations.fast))
+                        ) {
+                            Text(
+                                text = stringResource(R.string.player_via, (uiState.currentStreamName ?: "").replace("\n", " · ")),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.White.copy(alpha = 0.62f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
@@ -2556,206 +2577,129 @@ private fun PlayerControlsOverlay(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
-                    // The buttons sit in a glass dock, like Home's menu bar, the focused one under the app's lens.
-                    modifier = Modifier
-                        .glassSurface(PlayerPillShape)
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     val hasEpisodeContext = uiState.currentSeason != null && uiState.currentEpisode != null
-                    val hasSubtitleControl = uiState.subtitleTracks.isNotEmpty() || uiState.addonSubtitles.isNotEmpty()
                     val hasAudioControl = uiState.audioTracks.isNotEmpty()
                     val showNextEpisodeButton = uiState.nextEpisode?.hasAired == true &&
                         (uiState.postPlayMode as? PostPlayMode.AutoPlay)?.let {
                             !it.searching && it.countdownSec == null
                         } != false
 
-                    ControlButton(
-                        icon = if (uiState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        iconPainter = if (uiState.isPlaying) customPausePainter else customPlayPainter,
-                        contentDescription = if (uiState.isPlaying) stringResource(R.string.cd_pause) else stringResource(R.string.cd_play),
+                    // 1. Standalone Primary Pill Button (▶ Continue / ❚❚ Pause)
+                    NuvioLegacyPrimaryPlayButton(
+                        isPlaying = uiState.isPlaying,
+                        accentColor = playerAccentColor,
+                        playPainter = customPlayPainter,
+                        pausePainter = customPausePainter,
                         onClick = onPlayPause,
                         focusRequester = playPauseFocusRequester,
                         upFocusRequester = progressUpTarget,
                         onDownKey = onHideControls,
-                        onFocused = onResetHideTimer,
-                        label = stringResource(if (uiState.isPlaying) R.string.player_btn_pause else R.string.player_btn_play)
+                        onFocused = onResetHideTimer
                     )
 
-                    // Audio and Quality are one button, and the main row is Play/Pause, Next episode,
-                    // Subtitles, Audio & Quality and Episodes; Sources and Switch player lead the tucked group.
-                    val availableButtons = PlayerButton.entries.filter { button ->
-                        when (button) {
-                            PlayerButton.NEXT_EPISODE -> showNextEpisodeButton
-                            PlayerButton.SUBTITLES -> hasSubtitleControl
-                            PlayerButton.AUDIO -> hasAudioControl || showQualityButton
-                            PlayerButton.QUALITY -> false
-                            PlayerButton.EPISODES -> hasEpisodeContext
-                            PlayerButton.REPORT_ISSUE -> uiState.playbackIssueReportsEnabled
-                            else -> true
-                        }
-                    }
-                    val (rowButtons, tuckedButtons) = availableButtons.partition { it in PlayerButton.newLookMainRow }
+                    // 2. Subtitles (caption box icon)
+                    NuvioLegacyCircleIconButton(
+                        icon = Icons.Default.ClosedCaption,
+                        iconPainter = customSubtitlePainter,
+                        contentDescription = stringResource(R.string.cd_subtitles),
+                        accentColor = playerAccentColor,
+                        onClick = onShowSubtitleDialog,
+                        upFocusRequester = progressUpTarget,
+                        onDownKey = onHideControls,
+                        onFocused = onResetHideTimer
+                    )
 
-                    val renderButton: @Composable (PlayerButton) -> Unit = { button ->
-                        when (button) {
-                            PlayerButton.NEXT_EPISODE -> ControlButton(
-                                icon = Icons.Default.SkipNext,
-                                contentDescription = stringResource(R.string.next_episode_label),
-                                onClick = onPlayNextEpisode,
-                                upFocusRequester = progressUpTarget,
-                                onDownKey = onHideControls,
-                                onFocused = onResetHideTimer,
-                                label = stringResource(R.string.player_btn_next_episode)
-                            )
-                            PlayerButton.SUBTITLES -> ControlButton(
-                                icon = Icons.Default.ClosedCaption,
-                                iconPainter = customSubtitlePainter,
-                                contentDescription = stringResource(R.string.cd_subtitles),
-                                onClick = onShowSubtitleDialog,
-                                upFocusRequester = progressUpTarget,
-                                onDownKey = onHideControls,
-                                onFocused = onResetHideTimer,
-                                label = stringResource(R.string.player_btn_subtitles)
-                            )
-                            PlayerButton.AUDIO -> ControlButton(
-                                icon = Icons.AutoMirrored.Filled.VolumeUp,
-                                iconPainter = customAudioPainter,
-                                contentDescription = stringResource(R.string.player_btn_audio_quality),
-                                // The merged panel opens on audio (or on quality when the file has no tracks to list).
-                                onClick = if (!hasAudioControl) onShowQualityOverlay else onShowAudioDialog,
-                                upFocusRequester = progressUpTarget,
-                                onDownKey = onHideControls,
-                                onFocused = onResetHideTimer,
-                                label = stringResource(R.string.player_btn_audio_quality)
-                            )
-                            PlayerButton.SOURCES -> ControlButton(
-                                icon = Icons.Default.SwapHoriz,
-                                iconPainter = customSourcePainter,
-                                contentDescription = stringResource(R.string.cd_sources),
-                                onClick = onShowSourcesPanel,
-                                upFocusRequester = progressUpTarget,
-                                onDownKey = onHideControls,
-                                onFocused = onResetHideTimer,
-                                label = stringResource(R.string.player_btn_sources)
-                            )
-                            PlayerButton.QUALITY -> ControlButton(
-                                icon = QualityIcon,
-                                contentDescription = stringResource(R.string.cd_quality),
-                                onClick = onShowQualityOverlay,
-                                upFocusRequester = progressUpTarget,
-                                onDownKey = onHideControls,
-                                onFocused = onResetHideTimer,
-                                label = stringResource(R.string.cd_quality)
-                            )
-                            PlayerButton.SWITCH_ENGINE -> ControlButton(
-                                icon = Icons.Default.SwapHoriz,
-                                contentDescription = stringResource(R.string.cd_switch_player_engine),
-                                onClick = onSwitchPlayerEngine,
-                                upFocusRequester = progressUpTarget,
-                                onDownKey = onHideControls,
-                                onFocused = onResetHideTimer,
-                                label = stringResource(R.string.player_btn_switch_player)
-                            )
-                            PlayerButton.EPISODES -> ControlButton(
-                                icon = Icons.AutoMirrored.Filled.List,
-                                iconPainter = customEpisodesPainter,
-                                contentDescription = stringResource(R.string.cd_episodes),
-                                onClick = onShowEpisodesPanel,
-                                upFocusRequester = progressUpTarget,
-                                onDownKey = onHideControls,
-                                onFocused = onResetHideTimer,
-                                label = stringResource(R.string.player_btn_episodes)
-                            )
-                            PlayerButton.SPEED -> ControlButton(
-                                icon = Icons.Default.Speed,
-                                contentDescription = stringResource(R.string.cd_playback_speed),
-                                onClick = onShowSpeedDialog,
-                                upFocusRequester = progressUpTarget,
-                                onDownKey = onHideControls,
-                                onFocused = onResetHideTimer,
-                                label = stringResource(R.string.player_btn_speed)
-                            )
-                            PlayerButton.ASPECT_RATIO -> ControlButton(
-                                icon = Icons.Default.AspectRatio,
-                                iconPainter = customAspectPainter,
-                                contentDescription = stringResource(R.string.cd_aspect_ratio),
-                                onClick = onToggleAspectRatio,
-                                upFocusRequester = progressUpTarget,
-                                onDownKey = onHideControls,
-                                onFocused = onResetHideTimer,
-                                label = stringResource(R.string.player_btn_aspect)
-                            )
-                            PlayerButton.EXTERNAL_PLAYER -> ControlButton(
-                                icon = Icons.AutoMirrored.Filled.OpenInNew,
-                                contentDescription = stringResource(R.string.cd_open_external_player),
-                                onClick = onOpenInExternalPlayer,
-                                upFocusRequester = progressUpTarget,
-                                onDownKey = onHideControls,
-                                onFocused = onResetHideTimer,
-                                label = stringResource(R.string.player_btn_external)
-                            )
-                            PlayerButton.STREAM_INFO -> ControlButton(
-                                icon = Icons.Default.Info,
-                                contentDescription = stringResource(R.string.cd_stream_info),
-                                onClick = onShowStreamInfo,
-                                focusRequester = streamInfoFocusRequester,
-                                upFocusRequester = progressUpTarget,
-                                onDownKey = onHideControls,
-                                onFocused = onResetHideTimer,
-                                label = stringResource(R.string.player_btn_stream_info)
-                            )
-                            PlayerButton.REPORT_ISSUE -> ReportControlButton(
-                                label = stringResource(R.string.player_btn_report),
-                                reportId = uiState.playbackIssueReportId,
-                                showReportId = reportCodeVisible,
-                                onClick = onReportPlaybackIssue,
-                                enabled = uiState.playbackIssueReportStatus != PlaybackIssueReportStatus.Sending &&
-                                    uiState.playbackIssueReportStatus != PlaybackIssueReportStatus.Sent,
-                                upFocusRequester = progressUpTarget,
-                                onDownKey = onHideControls,
-                                onFocused = onResetHideTimer
-                            )
-                        }
-                    }
+                    // 3. Audio Tracks & Quality (vertical soundwave bars icon)
+                    NuvioLegacyCircleIconButton(
+                        icon = androidx.compose.material.icons.Icons.Default.GraphicEq,
+                        contentDescription = stringResource(R.string.player_btn_audio_quality),
+                        accentColor = playerAccentColor,
+                        onClick = if (!hasAudioControl && showQualityButton) onShowQualityOverlay else onShowAudioDialog,
+                        upFocusRequester = progressUpTarget,
+                        onDownKey = onHideControls,
+                        onFocused = onResetHideTimer
+                    )
 
-                    rowButtons.forEach { button -> key(button) { renderButton(button) } }
+                    // 4. Aspect Ratio / Screen Fit (screen frame with corner brackets icon)
+                    NuvioLegacyCircleIconButton(
+                        icon = Icons.Default.AspectRatio,
+                        iconPainter = customAspectPainter,
+                        contentDescription = stringResource(R.string.cd_aspect_ratio),
+                        accentColor = playerAccentColor,
+                        onClick = onToggleAspectRatio,
+                        upFocusRequester = progressUpTarget,
+                        onDownKey = onHideControls,
+                        onFocused = onResetHideTimer
+                    )
 
-                    if (tuckedButtons.isNotEmpty()) {
-                        AnimatedVisibility(
-                            visible = uiState.showMoreDialog,
-                            enter = slideInHorizontally(
-                                animationSpec = tween(NuvioMotion.tokens.durations.fast),
-                                initialOffsetX = { it / 2 }
-                            ) + fadeIn(animationSpec = tween(NuvioMotion.tokens.durations.fast)),
-                            exit = slideOutHorizontally(
-                                animationSpec = tween(160),
-                                targetOffsetX = { it / 2 }
-                            ) + fadeOut(animationSpec = tween(160))
-                        ) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                tuckedButtons.forEach { button -> key(button) { renderButton(button) } }
-                            }
-                        }
+                    // 5. Sources / Streams (stacked diamond layers icon)
+                    NuvioLegacyCircleIconButton(
+                        icon = androidx.compose.material.icons.Icons.Default.Layers,
+                        contentDescription = stringResource(R.string.cd_sources),
+                        accentColor = playerAccentColor,
+                        onClick = onShowSourcesPanel,
+                        upFocusRequester = progressUpTarget,
+                        onDownKey = onHideControls,
+                        onFocused = onResetHideTimer
+                    )
 
-                        ControlButton(
-                            icon = if (uiState.showMoreDialog) {
-                                Icons.AutoMirrored.Filled.KeyboardArrowLeft
-                            } else {
-                                Icons.AutoMirrored.Filled.KeyboardArrowRight
-                            },
-                            contentDescription = if (uiState.showMoreDialog) stringResource(R.string.cd_close_more_actions) else stringResource(R.string.cd_more_actions),
-                            onClick = onToggleMoreActions,
+                    // 6. Episodes / More Controls (film strip icon)
+                    NuvioLegacyCircleIconButton(
+                        icon = androidx.compose.material.icons.Icons.Default.Theaters,
+                        contentDescription = if (hasEpisodeContext) stringResource(R.string.cd_episodes) else stringResource(R.string.cd_more_actions),
+                        accentColor = playerAccentColor,
+                        onClick = if (hasEpisodeContext) onShowEpisodesPanel else onToggleMoreActions,
+                        upFocusRequester = progressUpTarget,
+                        onDownKey = onHideControls,
+                        onFocused = onResetHideTimer
+                    )
+
+                    if (showNextEpisodeButton) {
+                        NuvioLegacyCircleIconButton(
+                            icon = Icons.Default.SkipNext,
+                            contentDescription = stringResource(R.string.next_episode_label),
+                            accentColor = playerAccentColor,
+                            onClick = onPlayNextEpisode,
                             upFocusRequester = progressUpTarget,
                             onDownKey = onHideControls,
-                            onFocused = onResetHideTimer,
-                            label = stringResource(if (uiState.showMoreDialog) R.string.player_btn_less else R.string.player_btn_more)
+                            onFocused = onResetHideTimer
                         )
                     }
+
+                    // 7. Player Accent Color Picker (Palette icon + expandable more controls)
+                    NuvioLegacyCircleIconButton(
+                        icon = androidx.compose.material.icons.Icons.Default.Palette,
+                        contentDescription = "Player Accent Color",
+                        accentColor = playerAccentColor,
+                        onClick = { showAccentPicker = true },
+                        upFocusRequester = progressUpTarget,
+                        onDownKey = onHideControls,
+                        onFocused = onResetHideTimer
+                    )
+
+                    NuvioLegacyCircleIconButton(
+                        icon = Icons.Default.Speed,
+                        contentDescription = stringResource(R.string.cd_playback_speed),
+                        accentColor = playerAccentColor,
+                        onClick = onShowSpeedDialog,
+                        upFocusRequester = progressUpTarget,
+                        onDownKey = onHideControls,
+                        onFocused = onResetHideTimer
+                    )
+
+                    NuvioLegacyCircleIconButton(
+                        icon = Icons.Default.Info,
+                        contentDescription = stringResource(R.string.cd_stream_info),
+                        accentColor = playerAccentColor,
+                        focusRequester = streamInfoFocusRequester,
+                        onClick = onShowStreamInfo,
+                        upFocusRequester = progressUpTarget,
+                        onDownKey = onHideControls,
+                        onFocused = onResetHideTimer
+                    )
                 }
 
                 // Right side - time, with the playing quality just above it in the minimal player
@@ -2772,6 +2716,12 @@ private fun PlayerControlsOverlay(
                 }
             }
             }
+        }
+
+        if (showAccentPicker) {
+            PlayerAccentColorPickerDialog(
+                onDismiss = { showAccentPicker = false }
+            )
         }
     }
 }
@@ -2833,19 +2783,20 @@ private fun PlayerControlsProgressBarHost(
 private fun PlayerControlsTimeTextHost(viewModel: PlayerViewModel) {
     val playbackTimeline by viewModel.playbackTimeline.collectAsState()
     val switching = viewModel.uiState.collectAsState().value.sourceSwitch
-    val timeText = if (switching != null) {
-        "${formatTime(switching.positionMs)} / ${formatTime(switching.durationMs)}"
-    } else if (playbackTimeline.isLive) {
-        stringResource(R.string.player_live_watched, formatTime(playbackTimeline.watchedDurationMs))
+    if (playbackTimeline.isLive && switching == null) {
+        Text(
+            text = stringResource(R.string.player_live_watched, formatTime(playbackTimeline.watchedDurationMs)),
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White.copy(alpha = 0.9f)
+        )
     } else {
-        "${formatTime(playbackTimeline.currentPosition)} / ${formatTime(playbackTimeline.duration)}"
+        val currentMs = switching?.positionMs ?: playbackTimeline.currentPosition
+        val durationMs = switching?.durationMs ?: playbackTimeline.duration
+        NuvioLegacySplitTimeText(
+            currentFormatted = formatTime(currentMs),
+            durationFormatted = formatTime(durationMs)
+        )
     }
-
-    Text(
-        text = timeText,
-        style = MaterialTheme.typography.bodyMedium,
-        color = Color.White.copy(alpha = 0.9f)
-    )
 }
 
 @Composable
@@ -3066,7 +3017,8 @@ private fun ProgressBar(
     /** A new source is loading: a streak in the accent colour runs along the bar. */
     loading: Boolean = false
 ) {
-    val accentBrush = NuvioTheme.palette.accentBrush()
+    val playerAccentColor = rememberPlayerAccentColor()
+    val accentBrush = Brush.horizontalGradient(listOf(playerAccentColor, playerAccentColor))
     val progress = if (duration > 0) {
         (currentPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
     } else 0f
@@ -3196,7 +3148,7 @@ private fun ProgressBar(
                         .fillMaxHeight()
                         .width(trackWidth * animatedBufferedProgress)
                         .clip(RoundedCornerShape(3.dp))
-                        .background(NuvioTheme.colors.Secondary.copy(alpha = 0.35f))
+                        .background(playerAccentColor.copy(alpha = 0.35f))
                 )
             }
             // Played fill.
@@ -3207,7 +3159,7 @@ private fun ProgressBar(
                     .clip(RoundedCornerShape(3.dp))
                     .background(accentBrush)
             )
-            if (loading) LoadingStreak(color = NuvioTheme.colors.Secondary)
+            if (loading) LoadingStreak(color = playerAccentColor)
         }
         if (isFocused && !loading) {
             Box(
@@ -3367,24 +3319,31 @@ private fun PlayerClockOverlay(
         "--:--"
     }
 
-    Column(
+    Row(
         modifier = Modifier
-            .padding(horizontal = NuvioTheme.spacing.xxs, vertical = NuvioTheme.spacing.xxs),
-        horizontalAlignment = Alignment.End
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color(0xCC141416), RoundedCornerShape(999.dp))
+            .border(0.75.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(999.dp))
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(
             text = timeFormatter.format(Date(nowMs)),
             style = MaterialTheme.typography.bodyMedium.copy(
                 fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.Bold
             ),
-            color = Color.White.copy(alpha = 0.96f)
+            color = Color.White
         )
         if (!isLive) {
             Text(
                 text = stringResource(R.string.player_ends_at, endTimeText),
-                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 10.sp),
-                color = Color.White.copy(alpha = 0.78f)
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium
+                ),
+                color = Color.White.copy(alpha = 0.62f)
             )
         }
     }

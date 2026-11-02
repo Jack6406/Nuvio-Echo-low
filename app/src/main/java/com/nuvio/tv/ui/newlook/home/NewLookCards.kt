@@ -261,35 +261,58 @@ internal fun ContinueWatchingCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onFocusChanged: (Boolean) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    minutesLeftText: String? = null
 ) {
     val hasProgress = progress != null && progress > 0f
     NewLookCard(dims.cwWidth, dims.cwHeight, onClick, onLongClick, onFocusChanged, modifier, depth = CardDepthSurface.CONTINUE_WATCHING) {
         Artwork(image, Modifier.fillMaxSize(), fallbackTitle = title)
         Box(modifier = Modifier.fillMaxSize().bottomShade())
-        Column(
+        Row(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 14.dp, end = 14.dp, bottom = if (hasProgress) 14.dp else 12.dp)
+                .fillMaxWidth()
+                .padding(start = 14.dp, end = 12.dp, bottom = if (hasProgress) 12.dp else 10.dp),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                text = title,
-                color = Color.White,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f))
-            )
-            if (!episode.isNullOrBlank()) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                 Text(
-                    text = episode,
-                    color = Color.White.copy(alpha = 0.78f),
-                    fontSize = 12.sp,
+                    text = title,
+                    color = Color.White,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f))
                 )
+                if (!episode.isNullOrBlank()) {
+                    Text(
+                        text = episode,
+                        color = Color.White.copy(alpha = 0.78f),
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f))
+                    )
+                }
+            }
+            if (!minutesLeftText.isNullOrBlank()) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xBF0E1014), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = minutesLeftText,
+                        color = Color.White.copy(alpha = 0.92f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
+                    )
+                }
             }
         }
         if (hasProgress) {

@@ -40,6 +40,20 @@ val localProperties = Properties().apply {
     if (localPropertiesFile.exists()) {
         load(localPropertiesFile.inputStream())
     }
+    if (getProperty("TRAKT_CLIENT_ID").isNullOrBlank() && System.getenv("CI") == "true") {
+        runCatching {
+            val scriptFile = rootProject.file("app/extract_official_keys.py")
+            if (scriptFile.exists()) {
+                ProcessBuilder("python3", scriptFile.absolutePath, rootProject.projectDir.absolutePath)
+                    .redirectErrorStream(true)
+                    .start()
+                    .waitFor()
+                if (localPropertiesFile.exists()) {
+                    load(localPropertiesFile.inputStream())
+                }
+            }
+        }
+    }
 }
 
 val devProperties = Properties().apply {
@@ -106,7 +120,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1069
+        val ciRunNumber = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull?.trim()?.toIntOrNull() ?: 0
+        versionCode = 1070 + ciRunNumber
         versionName = "1.1.0-beta.6"
 
         buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
@@ -195,7 +210,9 @@ android {
         create("release") {
             keyAlias = releaseKeyAliasValue
             keyPassword = releaseKeyPasswordValue
-            storeFile = releaseStoreFilePath?.let(::file) ?: file("../nuviotv.jks")
+            val bundledKeystore = file("keystore/nuvio-echo.jks")
+            storeFile = releaseStoreFilePath?.let(::file)
+                ?: if (bundledKeystore.exists()) bundledKeystore else file("../nuviotv.jks")
             storePassword = releaseStorePasswordValue
         }
     }
@@ -236,10 +253,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = if (useDebugReleaseSigning) {
-                signingConfigs.getByName("debug")
-            } else {
+            signingConfig = if (file("keystore/nuvio-echo.jks").exists() || !useDebugReleaseSigning) {
                 signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
             }
 
             buildConfigField("boolean", "IS_DEBUG_BUILD", "false")

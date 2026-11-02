@@ -1,5 +1,6 @@
 package com.nuvio.tv.data.local
 
+import android.content.Context
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -12,17 +13,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 
 /**
- * Per-profile store for user-selected custom backdrop URLs (keyed by content ID).
- * Keeps an in-memory mirror in [Companion] so synchronous callers on Home and Details
- * can resolve overrides immediately without suspending.
+ * Per-profile store for user-selected custom backdrop / Continue Watching image URLs (keyed by content ID).
+ * Keeps an in-memory mirror and reactive [StateFlow] in [Companion] so callers on Home and Details
+ * resolve and recompose overrides immediately.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
@@ -37,8 +40,8 @@ class CustomBackdropStore @Inject constructor(
             factory.get(profileId, FEATURE).data.map(::readOverrides)
         }
         .onEach { map ->
-            memoryMirror.clear()
             memoryMirror.putAll(map)
+            _reactiveMirror.value = HashMap(memoryMirror)
         }
 
     val overrides: StateFlow<Map<String, String>> = overridesFlow
@@ -53,6 +56,7 @@ class CustomBackdropStore @Inject constructor(
         } else {
             memoryMirror[cleanId] = cleanUrl
         }
+        _reactiveMirror.value = HashMap(memoryMirror)
         factory.get(profileManager.activeProfileId.value, FEATURE).edit { prefs ->
             val key = stringPreferencesKey(KEY_PREFIX + cleanId)
             if (cleanUrl == null) {
@@ -81,7 +85,34 @@ class CustomBackdropStore @Inject constructor(
     companion object {
         private const val FEATURE = "custom_backdrops"
         private const val KEY_PREFIX = "backdrop:"
+        private const val CW_PREFS_NAME = "nuvio_cw_poster_overrides"
         private val memoryMirror = ConcurrentHashMap<String, String>()
+        private val _reactiveMirror = MutableStateFlow<Map<String, String>>(emptyMap())
+        val reactiveOverrides: StateFlow<Map<String, String>> = _reactiveMirror.asStateFlow()
+
+        fun initFromPrefs(context: Context) {
+            val prefs = context.applicationContext.getSharedPreferences(CW_PREFS_NAME, Context.MODE_PRIVATE)
+            for ((k, v) in prefs.all) {
+                val url = (v as? String)?.trim()?.takeIf { it.isNotEmpty() } ?: continue
+                memoryMirror[k] = url
+            }
+            _reactiveMirror.value = HashMap(memoryMirror)
+        }
+
+        fun setDirectOverride(context: Context, contentId: String, url: String?) {
+            val cleanId = contentId.trim()
+            if (cleanId.isEmpty()) return
+            val cleanUrl = url?.trim()?.takeIf { it.isNotEmpty() }
+            val prefs = context.applicationContext.getSharedPreferences(CW_PREFS_NAME, Context.MODE_PRIVATE)
+            if (cleanUrl == null) {
+                memoryMirror.remove(cleanId)
+                prefs.edit().remove(cleanId).apply()
+            } else {
+                memoryMirror[cleanId] = cleanUrl
+                prefs.edit().putString(cleanId, cleanUrl).apply()
+            }
+            _reactiveMirror.value = HashMap(memoryMirror)
+        }
 
         /** Returns the user's custom backdrop for [contentId] if one is set, or [defaultBackdrop]. */
         fun resolve(contentId: String?, defaultBackdrop: String?): String? {

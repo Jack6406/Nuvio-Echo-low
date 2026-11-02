@@ -121,10 +121,10 @@ class TraktAuthService @Inject constructor(
      * Trakt apps registered since PKCE sign-in came in have no client secret: the device code flow and token
      * refresh work with the client id alone, so the secret is sent only when the build has one.
      */
-    private fun traktClientSecret(): String? = BuildConfig.TRAKT_CLIENT_SECRET.ifBlank { null }
+    private fun traktClientSecret(): String? = com.nuvio.tv.core.apikeys.TrackingClientIds.traktClientSecret.ifBlank { null }
 
     fun hasRequiredCredentials(): Boolean {
-        return BuildConfig.TRAKT_CLIENT_ID.isNotBlank()
+        return com.nuvio.tv.core.apikeys.TrackingClientIds.traktClientId.isNotBlank()
     }
 
     suspend fun getCurrentAuthState(): TraktAuthState = traktAuthDataStore.getCurrentState()
@@ -163,7 +163,7 @@ class TraktAuthService @Inject constructor(
         // Retry-After header when the server supplies a short back-off.
         suspend fun requestOnce(): Response<TraktDeviceCodeResponseDto> =
             traktApi.requestDeviceCode(
-                TraktDeviceCodeRequestDto(clientId = BuildConfig.TRAKT_CLIENT_ID)
+                TraktDeviceCodeRequestDto(clientId = com.nuvio.tv.core.apikeys.TrackingClientIds.traktClientId)
             )
 
         var response = try {
@@ -218,7 +218,7 @@ class TraktAuthService @Inject constructor(
             traktApi.requestDeviceToken(
                 TraktDeviceTokenRequestDto(
                     code = deviceCode,
-                    clientId = BuildConfig.TRAKT_CLIENT_ID,
+                    clientId = com.nuvio.tv.core.apikeys.TrackingClientIds.traktClientId,
                     clientSecret = traktClientSecret()
                 )
             )
@@ -281,7 +281,7 @@ class TraktAuthService @Inject constructor(
                 traktApi.refreshToken(
                     TraktRefreshTokenRequestDto(
                         refreshToken = refreshToken,
-                        clientId = BuildConfig.TRAKT_CLIENT_ID,
+                        clientId = com.nuvio.tv.core.apikeys.TrackingClientIds.traktClientId,
                         clientSecret = traktClientSecret(),
                         redirectUri = traktRedirectUri()
                     )
@@ -316,7 +316,7 @@ class TraktAuthService @Inject constructor(
                     traktApi.revokeToken(
                         TraktRevokeRequestDto(
                             token = accessToken,
-                            clientId = BuildConfig.TRAKT_CLIENT_ID,
+                            clientId = com.nuvio.tv.core.apikeys.TrackingClientIds.traktClientId,
                             clientSecret = traktClientSecret()
                         )
                     )

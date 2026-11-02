@@ -48,6 +48,8 @@ data class BinsUiState(
     /** The bin being looked inside, if any. */
     val openBin: Bin? = null,
     val openTitles: List<BinTitle> = emptyList(),
+    /** All unique saved titles across all bins for the Classic Library 2:3 portrait grid. */
+    val allTitles: List<BinTitle> = emptyList(),
     /** Custom order mode: pick one, then pick another to swap them. */
     val reordering: Boolean = false,
     /** The bin id or title key picked to move. */
@@ -104,12 +106,19 @@ class BinsViewModel @Inject constructor(
             val previews = sorted.map { it.toPreview() }.withCustomPosterUrls(pattern)
             sorted.zip(previews) { entry, preview -> BinTitle(entry, preview) }
         }.orEmpty()
+        val uniqueEntries = bins
+            .flatMap { it.entries }
+            .distinctBy { it.key }
+        val sortedAllEntries = BinsReducer.sortedEntries(uniqueEntries, state.sort)
+        val allPreviews = sortedAllEntries.map { it.toPreview() }.withCustomPosterUrls(pattern)
+        val allTitles = sortedAllEntries.zip(allPreviews) { entry, preview -> BinTitle(entry, preview) }
         BinsUiState(
             loaded = true,
             bins = bins,
             sort = state.sort,
             openBin = open,
             openTitles = titles,
+            allTitles = allTitles,
             reordering = local.reordering,
             picked = local.picked,
             posterWidthDp = width,
@@ -247,17 +256,22 @@ class BinsViewModel @Inject constructor(
     }
 }
 
-internal fun BinEntry.toPreview(): MetaPreview = MetaPreview(
-    id = id,
-    type = ContentType.fromString(type),
-    rawType = type,
-    name = name,
-    poster = poster,
-    posterShape = PosterShape.POSTER,
-    background = background,
-    logo = logo,
-    description = description,
-    releaseInfo = releaseInfo,
-    imdbRating = imdbRating,
-    genres = genres
-)
+internal fun BinEntry.toPreview(): MetaPreview {
+    val cleanPoster = poster?.takeIf { it.isNotBlank() && !it.contains("/background/") }
+        ?: id.takeIf { it.startsWith("tt") }?.let { "https://images.metahub.space/poster/medium/$it/img" }
+        ?: poster
+    return MetaPreview(
+        id = id,
+        type = ContentType.fromString(type),
+        rawType = type,
+        name = name,
+        poster = cleanPoster,
+        posterShape = PosterShape.POSTER,
+        background = background,
+        logo = logo,
+        description = description,
+        releaseInfo = releaseInfo,
+        imdbRating = imdbRating,
+        genres = genres
+    )
+}
