@@ -365,12 +365,16 @@ class NewDetailsViewModel @Inject constructor(
             append(stream.behaviorHints?.filename.orEmpty())
         }.lowercase()
 
-        com.nuvio.tv.core.streams.StreamQualityParser.parse(stream)?.label?.let { chips += it }
-            ?: when {
+        val parsedQualityLabel = com.nuvio.tv.core.streams.StreamQualityParser.parse(stream)?.label
+        if (parsedQualityLabel != null) {
+            chips += parsedQualityLabel
+        } else {
+            when {
                 text.contains("2160p") || text.contains("4k") || text.contains("uhd") -> chips += "4K"
                 text.contains("1080p") -> chips += "1080p"
                 text.contains("720p") -> chips += "720p"
             }
+        }
 
         when {
             text.contains("dolby vision") || Regex("\\b(dv|dovi)\\b").containsMatchIn(text) -> chips += "DV"
