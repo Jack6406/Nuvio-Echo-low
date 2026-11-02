@@ -366,7 +366,7 @@ fun NuvioLegacyTopLeftBadges(
 
     val selectedAudioText = remember(uiState.audioTracks, uiState.selectedAudioTrackIndex) {
         val selected = uiState.audioTracks.getOrNull(uiState.selectedAudioTrackIndex)
-        listOfNotNull(selected?.name, selected?.codec, selected?.language, selected?.channelLayout)
+        listOfNotNull(selected?.name, selected?.codec, selected?.language, selected?.channelCount?.let { if (it >= 8) "7.1" else if (it >= 6) "5.1" else null })
             .joinToString(" ")
             .lowercase(Locale.US)
     }
