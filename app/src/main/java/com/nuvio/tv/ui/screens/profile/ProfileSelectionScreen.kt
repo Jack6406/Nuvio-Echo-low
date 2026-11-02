@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.profile
 
+import androidx.compose.ui.geometry.Offset
 import androidx.tv.material3.MaterialTheme
 import com.nuvio.tv.ui.util.contentTextDirection
 import com.nuvio.tv.ui.theme.NuvioMotion
