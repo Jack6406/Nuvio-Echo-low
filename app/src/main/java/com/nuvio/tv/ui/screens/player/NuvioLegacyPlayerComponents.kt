@@ -353,14 +353,14 @@ fun NuvioLegacyTopLeftBadges(
         uiState.currentStreamTitle,
         uiState.currentStreamDescription,
         uiState.currentStreamUrl,
-        uiState.filename
+        uiState.streamInfoData?.filename
     ) {
         listOfNotNull(
             uiState.currentStreamName,
             uiState.currentStreamTitle,
             uiState.currentStreamDescription,
             uiState.currentStreamUrl,
-            uiState.filename
+            uiState.streamInfoData?.filename
         ).joinToString(" ").lowercase(Locale.US)
     }
 
@@ -471,26 +471,26 @@ fun NuvioLegacyInlineStreamBadges(
         uiState.currentStreamName,
         uiState.currentStreamTitle,
         uiState.currentStreamDescription,
-        uiState.filename
+        uiState.streamInfoData?.filename
     ) {
         listOfNotNull(
             uiState.currentStreamName,
             uiState.currentStreamTitle,
             uiState.currentStreamDescription,
-            uiState.filename
+            uiState.streamInfoData?.filename
         ).joinToString(" ")
     }
     val lower = remember(rawText) { rawText.lowercase(Locale.US) }
 
-    val chips = remember(lower, uiState.videoWidth, uiState.videoHeight) {
+    val chips = remember(lower, (uiState.streamInfoData?.videoWidth ?: 0), uiState.streamInfoData?.videoHeight) {
         buildList {
             // Resolution
             when {
-                uiState.videoWidth >= 3800 || lower.contains("2160p") || lower.contains("4k") || lower.contains("uhd") ->
+                (uiState.streamInfoData?.videoWidth ?: 0) >= 3800 || lower.contains("2160p") || lower.contains("4k") || lower.contains("uhd") ->
                     add(Triple("4K", Color(0xFFFFB300).copy(alpha = 0.22f), Color(0xFFFFD54F)))
-                uiState.videoWidth >= 1900 || lower.contains("1080p") || lower.contains("fhd") ->
+                (uiState.streamInfoData?.videoWidth ?: 0) >= 1900 || lower.contains("1080p") || lower.contains("fhd") ->
                     add(Triple("1080p", Color(0xFF1E88E5).copy(alpha = 0.24f), Color(0xFF90CAF9)))
-                uiState.videoWidth >= 1200 || lower.contains("720p") || lower.contains("hd") ->
+                (uiState.streamInfoData?.videoWidth ?: 0) >= 1200 || lower.contains("720p") || lower.contains("hd") ->
                     add(Triple("720p", Color(0xFF546E7A).copy(alpha = 0.28f), Color(0xFFCFD8DC)))
             }
             // HDR / DV
