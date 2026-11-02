@@ -835,8 +835,8 @@ private fun NdHero(
         modifier = Modifier
             .bringIntoViewResponder(noScroll)
             .fillMaxWidth()
-            .heightIn(min = 488.dp)
-            .padding(start = 48.dp, end = 48.dp, top = 44.dp)
+            .heightIn(min = 460.dp)
+            .padding(start = 48.dp, end = 48.dp, top = if (isSeries) 24.dp else 34.dp, bottom = 12.dp)
             .onFocusChanged { if (it.hasFocus) onFocusedInHero() }
     ) {
         Column(modifier = Modifier.fillMaxWidth(0.46f)) {
@@ -845,17 +845,17 @@ private fun NdHero(
                     model = remember(meta.logo) { ImageRequest.Builder(context).data(meta.logo).crossfade(true).build() },
                     contentDescription = meta.name,
                     onError = { logoFailed = true },
-                    modifier = Modifier.height(64.dp).fillMaxWidth(0.8f),
+                    modifier = Modifier.height(if (isSeries) 50.dp else 60.dp).fillMaxWidth(0.8f),
                     contentScale = ContentScale.Fit,
                     alignment = Alignment.CenterStart
                 )
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(if (isSeries) 8.dp else 12.dp))
             } else {
-                Text(meta.name, color = Color.White, fontSize = 32.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold, maxLines = 2)
-                Spacer(Modifier.height(10.dp))
+                Text(meta.name, color = Color.White, fontSize = if (isSeries) 28.sp else 32.sp, lineHeight = if (isSeries) 34.sp else 40.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+                Spacer(Modifier.height(if (isSeries) 6.dp else 10.dp))
             }
             NdMetaLines(meta = meta, isSeries = isSeries, tmdbRating = state.tmdbRating, mdbListRatings = state.mdbListRatings)
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(if (isSeries) 6.dp else 10.dp))
             NdSynopsis(
                 meta = meta,
                 isSeries = isSeries,
@@ -866,9 +866,9 @@ private fun NdHero(
                 modifier = Modifier.zIndex(2f)
             )
             Column(Modifier.alpha(dim)) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(if (isSeries) 5.dp else 8.dp))
                 NdCredits(isSeries = isSeries, castOnly = castOnly, crew = crew)
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(if (isSeries) 8.dp else 12.dp))
                 val holding = state.bins.filter { it.id in state.titleBinIds }
                 NdRatingRow(
                     firstFocus = likeFocus,
@@ -890,7 +890,7 @@ private fun NdHero(
                     onToggleWatched = onToggleWatched,
                     onOpenBackdrop = onOpenBackdrop
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(if (isSeries) 6.dp else 10.dp))
                 val customBadge = if (hasCustomBackdrop) stringResource(R.string.nd_backdrop_custom_badge) else null
                 val items = buildList {
                     if (isSeries) add(NdMenuItem(Icons.Outlined.Tv, stringResource(R.string.nd_menu_episodes),
@@ -907,7 +907,7 @@ private fun NdHero(
                     add(NdMenuItem(Icons.Outlined.Image, stringResource(R.string.nd_menu_backdrop), customBadge, backdropItemFocus, onOpenBackdrop))
                 }
                 NdPreselectedStreamBadgesRow(preselected = preselectedStream)
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(4.dp))
                 NdPlayMenu(
                     upFocus = likeFocus,
                     playLabel = playLabel,
@@ -1297,15 +1297,16 @@ private fun NdPlayMenu(
                     .detailGlassLens(NdPill)
             )
         }
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        val compactMenu = items.size >= 4
+        Column(verticalArrangement = Arrangement.spacedBy(if (compactMenu) 1.dp else 2.dp)) {
             Row(
                 modifier = Modifier
                     .onGloballyPositioned {
                         bounds[0] = it.boundsInParent()
                         onPlayBounds(it.boundsInRoot())
                     }
-                    .width(208.dp)
-                    .height(36.dp)
+                    .width(216.dp)
+                    .height(if (compactMenu) 32.dp else 36.dp)
                     // Up from Play goes to the first rating button, not whichever is nearest.
                     .focusProperties { up = upFocus }
                     .ndClickable(
@@ -1333,8 +1334,8 @@ private fun NdPlayMenu(
                 Row(
                     modifier = Modifier
                         .onGloballyPositioned { bounds[index] = it.boundsInParent() }
-                        .width(208.dp)
-                        .height(30.dp)
+                        .width(216.dp)
+                        .height(if (compactMenu) 27.dp else 30.dp)
                         .ndClickable(
                             focusRequester = item.focusRequester,
                             onFocusChanged = { f -> if (f) focused = index else if (focused == index) focused = -1 },

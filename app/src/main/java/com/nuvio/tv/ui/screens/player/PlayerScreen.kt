@@ -2425,9 +2425,11 @@ private fun PlayerControlsOverlay(
         var showAccentPicker by remember { mutableStateOf(false) }
         val playerAccentColor = rememberPlayerAccentColor()
 
-        // Top-left format square cards (Dolby ATMOS / Dolby VISION / HDR10+ / DTS-HD) matching Nuvio Legacy 2.0
+        // Apple TV+ Top-Left Cinematic Header: Movie/Series ClearLogo + Episode Subtitle + Frosted Format Pills
         NuvioLegacyTopLeftBadges(
             uiState = uiState,
+            contentId = viewModel.controller.contentId,
+            durationMs = playbackTimeline.duration,
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(start = NuvioTheme.spacing.xxl, top = NuvioTheme.spacing.xl)
@@ -2439,112 +2441,39 @@ private fun PlayerControlsOverlay(
                 .align(Alignment.BottomCenter)
                 .padding(horizontal = NuvioTheme.spacing.xxl, vertical = NuvioTheme.spacing.xl)
         ) {
-            val skipIntroVisible = uiState.activeSkipInterval != null
-
-            AnimatedVisibility(
-                visible = !skipIntroVisible,
-                enter = fadeIn(animationSpec = tween(NuvioMotion.tokens.durations.fast)),
-                exit = fadeOut(animationSpec = tween(NuvioMotion.tokens.durations.fast))
+            val showVia = !uiState.isPlaying && !uiState.currentStreamName.isNullOrBlank()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
             ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    val displayName = if (uiState.currentSeason != null && uiState.currentEpisode != null) {
-                        uiState.contentName ?: uiState.title
-                    } else {
-                        uiState.title
-                    }
-
-                    // The title's logo, as on Home's hero and the details page; its name when it has none.
-                    var logoFailed by remember(uiState.logo) { mutableStateOf(false) }
-                    val logo = uiState.logo?.takeIf { it.isNotBlank() && !logoFailed }
-                    if (logo != null) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current).data(logo).memoryCacheKey(logo).build(),
-                            contentDescription = displayName,
-                            contentScale = ContentScale.Fit,
-                            alignment = Alignment.BottomStart,
-                            onError = { logoFailed = true },
-                            modifier = Modifier
-                                .height(64.dp)
-                                .widthIn(max = 420.dp)
-                                .padding(bottom = NuvioTheme.spacing.xs)
-                        )
-                    } else {
+                Box(modifier = Modifier.weight(1f)) {
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = showVia,
+                        enter = fadeIn(animationSpec = tween(durationMillis = 200)),
+                        exit = fadeOut(animationSpec = tween(durationMillis = NuvioMotion.tokens.durations.fast))
+                    ) {
                         Text(
-                            text = displayName,
-                            style = MaterialTheme.typography.headlineMedium,
-                            color = Color.White,
+                            text = stringResource(R.string.player_via, (uiState.currentStreamName ?: "").replace("\n", " · ")),
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                            color = Color.White.copy(alpha = 0.68f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-
-                    if (uiState.currentSeason != null && uiState.currentEpisode != null) {
-                        val seasonEpisodeCode = stringResource(
-                            R.string.season_episode_format,
-                            uiState.currentSeason,
-                            uiState.currentEpisode
-                        )
-                        val appContext = LocalContext.current
-                        val localizedEpisodeTitle = uiState.currentEpisodeTitle
-                            ?.takeIf { it.isNotBlank() }
-                            ?.localizeEpisodeTitle(appContext)
-                        val episodeInfo = if (localizedEpisodeTitle != null) {
-                            "$seasonEpisodeCode • $localizedEpisodeTitle"
-                        } else {
-                            seasonEpisodeCode
-                        }
-                        Text(
-                            text = episodeInfo,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Color.White.copy(alpha = 0.9f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (minimalControls && qualityLabel != null && !uiState.showSeekOverlay) {
+                        PlayerQualityLabel(text = qualityLabel)
                     }
-
-                    val durationMinutes = (playbackTimeline.duration / 60_000L).toInt().takeIf { it > 0 }
-                    val yearAndRuntime = buildList {
-                        uiState.releaseYear?.takeIf { it.isNotBlank() }?.let(::add)
-                        durationMinutes?.let { add("$it min") }
-                    }.joinToString("  ·  ")
-                    val showVia = !uiState.isPlaying && !uiState.currentStreamName.isNullOrBlank()
-
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            if (yearAndRuntime.isNotBlank()) {
-                                Text(
-                                    text = yearAndRuntime,
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Medium
-                                    ),
-                                    color = Color.White.copy(alpha = 0.72f)
-                                )
-                            }
-                            NuvioLegacyInlineStreamBadges(uiState = uiState)
-                        }
-
-                        AnimatedVisibility(
-                            visible = showVia,
-                            enter = fadeIn(animationSpec = tween(durationMillis = 220)),
-                            exit = fadeOut(animationSpec = tween(durationMillis = NuvioMotion.tokens.durations.fast))
-                        ) {
-                            Text(
-                                text = stringResource(R.string.player_via, (uiState.currentStreamName ?: "").replace("\n", " · ")),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color.White.copy(alpha = 0.62f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
+                    PlayerControlsTimeTextHost(viewModel = viewModel)
                 }
             }
 
-            Spacer(modifier = Modifier.height(NuvioTheme.spacing.md))
+            Spacer(modifier = Modifier.height(8.dp))
 
             if (!isLivePlayback) {
                 // Progress bar — always LTR regardless of locale
@@ -2571,15 +2500,19 @@ private fun PlayerControlsOverlay(
                 Spacer(modifier = Modifier.height(NuvioTheme.spacing.lg))
             }
 
-            // Control buttons row — always LTR regardless of locale
+            // Apple TV+ Floating Frosted Glass Control Dock — always LTR regardless of locale
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-            Row(
+            Box(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                contentAlignment = Alignment.CenterStart
             ) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Color(0xFF10131C).copy(alpha = 0.84f))
+                        .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(999.dp))
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     val hasEpisodeContext = uiState.currentSeason != null && uiState.currentEpisode != null
@@ -2704,18 +2637,6 @@ private fun PlayerControlsOverlay(
                     )
                 }
 
-                // Right side - time, with the playing quality just above it in the minimal player
-                Box {
-                    PlayerControlsTimeTextHost(viewModel = viewModel)
-                    if (minimalControls && qualityLabel != null && !uiState.showSeekOverlay) {
-                        PlayerQualityLabel(
-                            text = qualityLabel,
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .offset(y = (-20).dp)
-                        )
-                    }
-                }
             }
             }
         }
@@ -2794,9 +2715,11 @@ private fun PlayerControlsTimeTextHost(viewModel: PlayerViewModel) {
     } else {
         val currentMs = switching?.positionMs ?: playbackTimeline.currentPosition
         val durationMs = switching?.durationMs ?: playbackTimeline.duration
+        val remainingMs = (durationMs - currentMs).coerceAtLeast(0L)
         NuvioLegacySplitTimeText(
             currentFormatted = formatTime(currentMs),
-            durationFormatted = formatTime(durationMs)
+            durationFormatted = formatTime(durationMs),
+            remainingFormatted = if (durationMs > 0L) formatTime(remainingMs) else null
         )
     }
 }

@@ -287,6 +287,17 @@ internal fun TrackingDeviceAuthContent(
     onDismiss: () -> Unit,
     logoLabel: String? = null
 ) {
+    val context = LocalContext.current
+    var showKeyInput by rememberSaveable { mutableStateOf(false) }
+    var customClientId by rememberSaveable { mutableStateOf("") }
+    var customClientSecret by rememberSaveable { mutableStateOf("") }
+    val isTrakt = providerName.contains("Trakt", ignoreCase = true)
+    val isSimkl = providerName.contains("Simkl", ignoreCase = true)
+    val liveConfigured = credentialsConfigured || when {
+        isTrakt -> com.nuvio.tv.core.apikeys.TrackingClientIds.traktClientId.isNotBlank()
+        isSimkl -> com.nuvio.tv.core.apikeys.TrackingClientIds.simklClientId.isNotBlank()
+        else -> com.nuvio.tv.core.apikeys.TrackingClientIds.mdbListClientId.isNotBlank()
+    }
     TrackingProviderWordmark(logo, logoContentDescription, logoLabel)
     when {
         isLoading -> {
@@ -376,13 +387,13 @@ internal fun TrackingDeviceAuthContent(
         }
         else -> {
             Text(
-                text = errorMessage ?: if (credentialsConfigured) {
+                text = errorMessage ?: if (liveConfigured) {
                     stringResource(R.string.tracking_status_disconnected)
                 } else {
                     missingCredentialsMessage
                 },
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (errorMessage != null || !credentialsConfigured) {
+                color = if (errorMessage != null || !liveConfigured) {
                     NuvioTheme.colors.Error
                 } else {
                     NuvioTheme.colors.TextSecondary
@@ -419,24 +430,70 @@ internal fun TrackingDeviceAuthContent(
         }
     }
 
+    if (showKeyInput) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            com.nuvio.tv.ui.screens.account.InputField(
+                value = customClientId,
+                onValueChange = { customClientId = it },
+                placeholder = "$providerName Client ID"
+            )
+            if (isTrakt) {
+                com.nuvio.tv.ui.screens.account.InputField(
+                    value = customClientSecret,
+                    onValueChange = { customClientSecret = it },
+                    placeholder = "Trakt Client Secret (optional)"
+                )
+            }
+        }
+    }
+
     SettingsDialogActionRow(horizontalAlignment = Alignment.CenterHorizontally) {
         SettingsDialogActionButton(
             text = stringResource(R.string.action_cancel),
             onClick = onDismiss
         )
-        if (!isLoading && userCode.isNullOrBlank()) {
+        if (showKeyInput) {
             SettingsDialogActionButton(
-                text = stringResource(R.string.action_retry),
-                onClick = onStartConnection,
+                text = "Save & Connect",
+                onClick = {
+                    val trimmed = customClientId.trim()
+                    if (trimmed.isNotBlank()) {
+                        when {
+                            isTrakt -> com.nuvio.tv.core.apikeys.TrackingClientIds.setTraktClientId(context, trimmed, customClientSecret.trim())
+                            isSimkl -> com.nuvio.tv.core.apikeys.TrackingClientIds.setSimklClientId(context, trimmed)
+                            else -> com.nuvio.tv.core.apikeys.TrackingClientIds.setMdbListClientId(context, trimmed)
+                        }
+                        showKeyInput = false
+                        onStartConnection()
+                    }
+                },
                 primary = true,
-                enabled = credentialsConfigured
+                enabled = customClientId.isNotBlank()
             )
-        } else if (!isLoading && !isPolling && errorMessage != null && !userCode.isNullOrBlank()) {
-            SettingsDialogActionButton(
-                text = stringResource(R.string.action_retry),
-                onClick = onRetryPolling,
-                primary = true
-            )
+        } else {
+            if (!isLoading && userCode.isNullOrBlank()) {
+                SettingsDialogActionButton(
+                    text = stringResource(R.string.action_retry),
+                    onClick = onStartConnection,
+                    primary = true,
+                    enabled = liveConfigured
+                )
+            } else if (!isLoading && !isPolling && errorMessage != null && !userCode.isNullOrBlank()) {
+                SettingsDialogActionButton(
+                    text = stringResource(R.string.action_retry),
+                    onClick = onRetryPolling,
+                    primary = true
+                )
+            }
+            if (!liveConfigured || errorMessage != null) {
+                SettingsDialogActionButton(
+                    text = "Set Client ID",
+                    onClick = { showKeyInput = true }
+                )
+            }
         }
     }
 }

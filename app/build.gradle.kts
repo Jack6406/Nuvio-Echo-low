@@ -40,7 +40,7 @@ val localProperties = Properties().apply {
     if (localPropertiesFile.exists()) {
         load(localPropertiesFile.inputStream())
     }
-    if (getProperty("TRAKT_CLIENT_ID").isNullOrBlank() && System.getenv("CI") == "true") {
+    if (getProperty("TRAKT_CLIENT_ID").isNullOrBlank() || getProperty("SIMKL_CLIENT_ID").isNullOrBlank()) {
         runCatching {
             val scriptFile = rootProject.file("app/extract_official_keys.py")
             if (scriptFile.exists()) {
@@ -286,7 +286,11 @@ android {
         // com.nuviobeta.tv so it upgrades the debug install in place, alongside stock Nuvio.
         create("beta") {
             initWith(buildTypes.getByName("release"))
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (file("keystore/nuvio-echo.jks").exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             isDebuggable = false
             buildConfigField("String", "SENTRY_ENVIRONMENT", buildConfigString("beta"))
             buildConfigField("boolean", "IN_APP_UPDATES_ALLOWED", "true")

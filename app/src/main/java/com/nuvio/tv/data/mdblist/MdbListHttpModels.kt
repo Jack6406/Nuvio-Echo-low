@@ -6,10 +6,13 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
 data class MdbListConfiguration(
-    val clientId: String,
+    val configuredClientId: String,
     val appVersion: String,
     val baseUrl: String = "https://api.mdblist.com"
-)
+) {
+    val clientId: String
+        get() = com.nuvio.tv.core.apikeys.TrackingClientIds.mdbListClientId.ifBlank { configuredClientId }
+}
 
 enum class MdbListHttpMethod { GET, POST, PUT, DELETE }
 

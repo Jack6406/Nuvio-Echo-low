@@ -179,7 +179,10 @@ class PlayerRuntimeController(
     internal val contentName: String? = navigationArgs.contentName
     internal val poster: String? = navigationArgs.poster
     internal val backdrop: String? = navigationArgs.backdrop
-    internal val logo: String? = navigationArgs.logo
+    internal val logo: String? = navigationArgs.logo?.takeIf { it.isNotBlank() }
+        ?: Regex("(tt\\d{5,12})").find(navigationArgs.contentId ?: navigationArgs.videoId ?: "")
+            ?.groupValues?.get(1)
+            ?.let { "https://images.metahub.space/logo/medium/$it/img" }
     internal val videoId: String? = navigationArgs.videoId
     internal val initialSeason: Int? = navigationArgs.initialSeason
     internal val initialEpisode: Int? = navigationArgs.initialEpisode

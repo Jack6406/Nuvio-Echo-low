@@ -204,7 +204,7 @@ internal fun NdPreselectedStreamBadgesRow(
     if (preselected.specChips.isEmpty() && preselected.customBadges.isEmpty()) return
 
     Column(modifier = modifier) {
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(4.dp))
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -245,7 +245,7 @@ internal fun NdPreselectedStreamBadgesRow(
                     )
                 }
             }
-            if (preselected.customBadges.isNotEmpty()) {
+            if (preselected.specChips.isEmpty() && preselected.customBadges.isNotEmpty()) {
                 StreamBadgeChips(
                     badges = preselected.customBadges,
                     fileSizeBytes = null,

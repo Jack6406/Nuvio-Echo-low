@@ -4,11 +4,14 @@ import com.nuvio.tv.BuildConfig
 import okhttp3.HttpUrl.Companion.toHttpUrl
 
 data class SimklApiConfiguration(
-    val clientId: String,
+    val configuredClientId: String,
     val appName: String,
     val appVersion: String,
     val baseUrl: String = "https://api.simkl.com"
-)
+) {
+    val clientId: String
+        get() = com.nuvio.tv.core.apikeys.TrackingClientIds.simklClientId.ifBlank { configuredClientId }
+}
 
 fun buildSimklApiUrl(
     configuration: SimklApiConfiguration,
@@ -42,7 +45,7 @@ fun simklRequestHeaders(
 }
 
 fun defaultSimklApiConfiguration(): SimklApiConfiguration = SimklApiConfiguration(
-    clientId = com.nuvio.tv.core.apikeys.TrackingClientIds.simklClientId,
+    configuredClientId = com.nuvio.tv.core.apikeys.TrackingClientIds.simklClientId,
     appName = BuildConfig.SIMKL_APP_NAME.ifBlank { "nuvio" },
     appVersion = BuildConfig.VERSION_NAME.ifBlank { "dev" }
 )

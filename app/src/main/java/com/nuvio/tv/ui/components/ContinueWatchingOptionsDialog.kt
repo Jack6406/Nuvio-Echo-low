@@ -4,7 +4,6 @@ package com.nuvio.tv.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,13 +13,16 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +57,7 @@ import com.nuvio.tv.ui.newlook.NewLookOption
 import com.nuvio.tv.ui.newlook.NewLookOptionsMenu
 import com.nuvio.tv.ui.screens.account.InputField
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
+import kotlinx.coroutines.delay
 
 /** URLs that failed to load — skip them immediately on next recomposition. */
 internal val brokenImageUrls = java.util.Collections.synchronizedSet(mutableSetOf<String>())
@@ -113,7 +116,8 @@ private data class CwPosterCandidate(
 )
 
 /**
- * Item 9: Visual Poster / Thumbnail Picker for Continue Watching items opened from the Hold-OK menu.
+ * Item 9 & Follow-Up Fix 3: Compact 2-Column Visual Poster / Thumbnail Picker for Continue Watching items
+ * so all options and bottom action buttons fit cleanly inside NuvioDialog with zero clipping.
  */
 @Composable
 fun ContinueWatchingPosterPickerDialog(
@@ -154,14 +158,14 @@ fun ContinueWatchingPosterPickerDialog(
                 list.add(CwPosterCandidate(label, provider, clean))
             }
         }
-        addIfValid("Episode Thumbnail (Default)", "Episode Still", episodeThumb)
+        addIfValid("Episode Thumbnail", "Default Still", episodeThumb)
         addIfValid("Title Backdrop", "Catalog Backdrop", itemBackdrop)
         if (imdbId != null) {
-            addIfValid("Metahub HD Backdrop", "Metahub", "https://images.metahub.space/background/medium/$imdbId/img")
-            addIfValid("Metahub Full Backdrop", "Metahub", "https://images.metahub.space/background/large/$imdbId/img")
-            addIfValid("Metahub Portrait Poster", "Metahub", "https://images.metahub.space/poster/medium/$imdbId/img")
+            addIfValid("Metahub HD Backdrop", "Metahub 720p", "https://images.metahub.space/background/medium/$imdbId/img")
+            addIfValid("Metahub Full Backdrop", "Metahub 1080p", "https://images.metahub.space/background/large/$imdbId/img")
+            addIfValid("Metahub Poster", "Metahub 2:3", "https://images.metahub.space/poster/medium/$imdbId/img")
         }
-        addIfValid("Title Poster", "Catalog Poster", itemPoster)
+        addIfValid("Title Poster", "Catalog 2:3", itemPoster)
         list
     }
 
@@ -170,15 +174,22 @@ fun ContinueWatchingPosterPickerDialog(
     var showCustomUrlEntry by rememberSaveable { mutableStateOf(false) }
     val firstFocus = remember { FocusRequester() }
 
+    LaunchedEffect(showCustomUrlEntry) {
+        delay(40)
+        runCatching { firstFocus.requestFocus() }
+    }
+
     NuvioDialog(
         onDismiss = onDismiss,
         title = "Change Continue Watching Poster",
         subtitle = title,
-        width = 580.dp
+        width = 640.dp,
+        contentPadding = 20.dp,
+        contentSpacing = 12.dp
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             if (showCustomUrlEntry) {
                 InputField(
@@ -232,81 +243,103 @@ fun ContinueWatchingPosterPickerDialog(
                     }
                 }
             } else {
-                candidates.forEachIndexed { index, candidate ->
-                    val isSelected = currentOverride == candidate.url || (currentOverride == null && index == 0)
-                    Button(
-                        onClick = {
-                            CustomBackdropStore.setDirectOverride(context, contentId, candidate.url)
-                            onDismiss()
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .then(if (index == 0) Modifier.focusRequester(firstFocus) else Modifier),
-                        colors = ButtonDefaults.colors(
-                            containerColor = if (isSelected) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.06f),
-                            focusedContainerColor = Color.White,
-                            contentColor = Color.White,
-                            focusedContentColor = Color.Black
-                        ),
-                        border = ButtonDefaults.border(
-                            border = Border(
-                                border = BorderStroke(1.dp, Color.White.copy(alpha = if (isSelected) 0.45f else 0.12f)),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                        ),
-                        shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
+                val rows = remember(candidates) { candidates.chunked(2) }
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 228.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    itemsIndexed(rows) { rowIndex, rowItems ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Box(
+                            rowItems.forEachIndexed { colIndex, candidate ->
+                                val flatIndex = rowIndex * 2 + colIndex
+                                val isSelected = currentOverride == candidate.url || (currentOverride == null && flatIndex == 0)
+                                Button(
+                                    onClick = {
+                                        CustomBackdropStore.setDirectOverride(context, contentId, candidate.url)
+                                        onDismiss()
+                                    },
                                     modifier = Modifier
-                                        .width(76.dp)
-                                        .height(44.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF1A1C22))
+                                        .weight(1f)
+                                        .then(if (flatIndex == 0) Modifier.focusRequester(firstFocus) else Modifier),
+                                    colors = ButtonDefaults.colors(
+                                        containerColor = if (isSelected) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.06f),
+                                        focusedContainerColor = Color.White,
+                                        contentColor = Color.White,
+                                        focusedContentColor = Color.Black
+                                    ),
+                                    border = ButtonDefaults.border(
+                                        border = Border(
+                                            border = BorderStroke(1.dp, Color.White.copy(alpha = if (isSelected) 0.45f else 0.12f)),
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                    ),
+                                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp)
                                 ) {
-                                    AsyncImage(
-                                        model = remember(context, candidate.url) {
-                                            ImageRequest.Builder(context)
-                                                .data(candidate.url)
-                                                .size(160, 90)
-                                                .build()
-                                        },
-                                        contentDescription = candidate.label,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                }
-                                Column {
-                                    Text(
-                                        text = candidate.label,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = candidate.provider,
-                                        fontSize = 11.sp,
-                                        color = Color.Gray,
-                                        maxLines = 1
-                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.weight(1f),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(64.dp)
+                                                    .height(38.dp)
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(Color(0xFF1A1C22))
+                                            ) {
+                                                AsyncImage(
+                                                    model = remember(context, candidate.url) {
+                                                        ImageRequest.Builder(context)
+                                                            .data(candidate.url)
+                                                            .size(160, 90)
+                                                            .build()
+                                                    },
+                                                    contentDescription = candidate.label,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                            }
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = candidate.label,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = candidate.provider,
+                                                    fontSize = 11.sp,
+                                                    color = Color.Gray,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                        if (isSelected) {
+                                            Spacer(Modifier.width(4.dp))
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
-                            if (isSelected) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
+                            if (rowItems.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
                             }
                         }
                     }
@@ -320,14 +353,15 @@ fun ContinueWatchingPosterPickerDialog(
                         onClick = { showCustomUrlEntry = true },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.colors(
-                            containerColor = Color.White.copy(alpha = 0.08f),
+                            containerColor = Color.White.copy(alpha = 0.10f),
                             focusedContainerColor = Color.White,
                             contentColor = Color.White,
                             focusedContentColor = Color.Black
                         ),
-                        shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                        shape = ButtonDefaults.shape(RoundedCornerShape(10.dp)),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                     ) {
-                        Text("Custom Image URL...", fontSize = 13.sp)
+                        Text("Custom Image URL...", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     }
                     if (currentOverride != null) {
                         Button(
@@ -337,15 +371,29 @@ fun ContinueWatchingPosterPickerDialog(
                             },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.colors(
-                                containerColor = Color.White.copy(alpha = 0.08f),
+                                containerColor = Color.White.copy(alpha = 0.10f),
                                 focusedContainerColor = Color.White,
                                 contentColor = Color.White,
                                 focusedContentColor = Color.Black
                             ),
-                            shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                            shape = ButtonDefaults.shape(RoundedCornerShape(10.dp)),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                         ) {
-                            Text("Reset to Default", fontSize = 13.sp)
+                            Text("Reset to Default", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                         }
+                    }
+                    Button(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.colors(
+                            containerColor = Color.White.copy(alpha = 0.06f),
+                            focusedContainerColor = Color.White,
+                            contentColor = Color.White.copy(alpha = 0.85f),
+                            focusedContentColor = Color.Black
+                        ),
+                        shape = ButtonDefaults.shape(RoundedCornerShape(10.dp)),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text(stringResource(R.string.action_cancel), fontSize = 13.sp)
                     }
                 }
             }
