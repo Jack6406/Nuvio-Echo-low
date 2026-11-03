@@ -586,9 +586,6 @@ internal fun NewLookHomeContent(
     fun focusIsland() {
         area = HomeArea.HERO
         scope.launch {
-            if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0) {
-                runCatching { listState.scrollToItem(0, 0) }
-            }
             repeat(20) {
                 if (tryFocus(clockIslandFocus)) return@launch
                 withFrameNanos { }
