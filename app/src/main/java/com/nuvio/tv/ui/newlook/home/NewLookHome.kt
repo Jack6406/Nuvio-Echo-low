@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -582,6 +583,29 @@ internal fun NewLookHomeContent(
         }
     }
 
+    fun focusIsland() {
+        area = HomeArea.HERO
+        scope.launch {
+            if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0) {
+                runCatching { listState.scrollToItem(0, 0) }
+            }
+            repeat(20) {
+                if (tryFocus(clockIslandFocus)) return@launch
+                withFrameNanos { }
+            }
+            showControlCenter = true
+        }
+    }
+
+    DisposableEffect(chrome) {
+        chrome?.onRightFromLastTab = { focusIsland() }
+        chrome?.onOpenControlCenter = { showControlCenter = true }
+        onDispose {
+            chrome?.onRightFromLastTab = null
+            chrome?.onOpenControlCenter = null
+        }
+    }
+
     fun focusRow(index: Int, col: Int? = null) {
         val row = rows.getOrNull(index) ?: return
         if (col != null) cols[row.key] = col
@@ -902,11 +926,15 @@ internal fun NewLookHomeContent(
             .focusGroup()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                if (chrome?.topBarFocused == true || cwOptions != null || showControlCenter || showViewingStats) return@onPreviewKeyEvent false
-                if (event.key == Key.ChannelUp || event.key == Key.Menu) {
+                if (cwOptions != null || showControlCenter || showViewingStats) return@onPreviewKeyEvent false
+                if (event.key == Key.ChannelUp ||
+                    ((heroHasFocus || clockIslandFocused || chrome?.topBarFocused == true) &&
+                        (event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_MENU || event.key == Key.Menu || event.key == Key.Info))
+                ) {
                     showControlCenter = true
                     return@onPreviewKeyEvent true
                 }
+                if (chrome?.topBarFocused == true || clockIslandFocused) return@onPreviewKeyEvent false
                 if (heroHasFocus) {
                     when (event.key) {
                         Key.DirectionLeft -> {
@@ -930,8 +958,8 @@ internal fun NewLookHomeContent(
                         Key.DirectionUp -> {
                             if (menuOnTop && heroButton == 0) {
                                 chrome?.focusTopBar()
-                            } else if (!tryFocus(clockIslandFocus)) {
-                                showControlCenter = true
+                            } else {
+                                focusIsland()
                             }
                             true
                         }
@@ -1033,7 +1061,31 @@ internal fun NewLookHomeContent(
                         topBar = if (menuOnTop && chrome != null) {
                             { modifier -> chrome.TopBar(onDown = { focusHero(heroButton) }, modifier = modifier) }
                         } else null,
-                        topBarVisible = !hideMenu || chrome?.topBarFocused == true,
+                        topBarVisible = !hideMenu || chrome?.topBarFocused == true || clockIslandFocused,
+                        clockIsland = {
+                            HomeTopRightClockIsland(
+                                statusNotice = clockStatusNotice,
+                                continueWatchingCount = uiState.continueWatchingItems.size,
+                                focusRequester = clockIslandFocus,
+                                onFocusedChanged = { focused ->
+                                    clockIslandFocused = focused
+                                    if (focused) {
+                                        heroHasFocus = false
+                                        focusedCard = null
+                                    }
+                                },
+                                onOpenControlCenter = { showControlCenter = true },
+                                onOpenStats = { showViewingStats = true },
+                                onLeftToTopBar = {
+                                    if (menuOnTop && chrome != null) {
+                                        chrome.focusLastTopBarTab()
+                                    } else {
+                                        focusHero(heroButton)
+                                    }
+                                },
+                                onDownToHero = { focusHero(heroButton) }
+                            )
+                        },
                         edgeToEdge = settings.heroEdgeToEdge
                     )
                 }
@@ -1122,27 +1174,6 @@ internal fun NewLookHomeContent(
             }
         }
 
-        // Top-right floating Clock Dynamic Island pill (Item 8)
-        val islandVisible = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 260
-        if (islandVisible || clockIslandFocused) {
-            HomeTopRightClockIsland(
-                statusNotice = clockStatusNotice,
-                continueWatchingCount = uiState.continueWatchingItems.size,
-                focusRequester = clockIslandFocus,
-                onFocusedChanged = { focused ->
-                    clockIslandFocused = focused
-                    if (focused) {
-                        heroHasFocus = false
-                    }
-                },
-                onOpenControlCenter = { showControlCenter = true },
-                onOpenStats = { showViewingStats = true },
-                onDownToHero = { focusHero(heroButton) },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 20.dp, end = 28.dp)
-            )
-        }
     }
 
     if (showControlCenter) {
@@ -1353,6 +1384,7 @@ private fun HeroBlock(
     onMoreInfo: () -> Unit,
     topBar: (@Composable (Modifier) -> Unit)?,
     topBarVisible: Boolean,
+    clockIsland: (@Composable () -> Unit)? = null,
     edgeToEdge: Boolean = false
 ) {
     val underBar = menuOnTop && !hideMenu
@@ -1434,10 +1466,26 @@ private fun HeroBlock(
                 modifier = Modifier
                     .fillMaxWidth()
                     .offset(y = if (hideMenu) (-28).dp else 12.dp)
-                    .graphicsLayer { this.alpha = alpha },
+                    .graphicsLayer { this.alpha = alpha }
+                    .padding(start = 76.dp, end = 24.dp),
                 contentAlignment = Alignment.TopCenter
             ) {
-                topBar(Modifier)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    topBar(Modifier)
+                    clockIsland?.invoke()
+                }
+            }
+        } else if (clockIsland != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 14.dp, end = 28.dp),
+                contentAlignment = Alignment.TopEnd
+            ) {
+                clockIsland()
             }
         }
     }

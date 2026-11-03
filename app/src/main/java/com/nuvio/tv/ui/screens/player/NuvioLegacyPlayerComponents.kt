@@ -155,93 +155,63 @@ fun Modifier.appleTvFrostedGlass(
     shape: Shape = RoundedCornerShape(999.dp),
     glints: Boolean = true
 ): Modifier {
-    val root = LocalView.current.rootView
-    var origin by remember { mutableStateOf(Offset.Zero) }
     return this
         .then(
             if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) Modifier
             else Modifier.shadow(
-                elevation = 16.dp,
+                elevation = 14.dp,
                 shape = shape,
                 clip = false,
-                ambientColor = Color.Black.copy(alpha = 0.50f),
-                spotColor = Color.Black.copy(alpha = 0.50f)
+                ambientColor = Color.Black.copy(alpha = 0.36f),
+                spotColor = Color.Black.copy(alpha = 0.36f)
             )
         )
-        .onGloballyPositioned { origin = it.positionInWindow() }
         .drawWithCache {
             val outline = shape.createOutline(size, layoutDirection, this)
-            val clip = Path().apply { addOutline(outline) }
-            val frostedBody = Brush.verticalGradient(
-                0f to Color(0xF0222634),
-                0.48f to Color(0xF2171A24),
-                1f to Color(0xF511131B)
+            // Pure transparent liquid glass matching NewLook GlassDrawing.glassSurface
+            val body = Brush.verticalGradient(
+                0f to Color(48, 48, 48, 82),
+                0.5f to Color(30, 30, 30, 66),
+                1f to Color(20, 20, 20, 77)
             )
-            val frostVeil = Brush.verticalGradient(
-                0f to Color.White.copy(alpha = 0.16f),
-                0.35f to Color.White.copy(alpha = 0.07f),
-                0.70f to Color.White.copy(alpha = 0.04f),
-                1f to Color.White.copy(alpha = 0.10f)
-            )
-            val innerGlow = Brush.radialGradient(
-                colors = listOf(Color.White.copy(alpha = 0.09f), Color.Transparent),
-                center = Offset(size.width * 0.5f, 0f),
-                radius = size.maxDimension * 0.75f
+            val glow = Brush.verticalGradient(
+                0f to Color.White.copy(alpha = 0.12f),
+                0.08f to Color.White.copy(alpha = 0.04f),
+                0.92f to Color.White.copy(alpha = 0.04f),
+                1f to Color.White.copy(alpha = 0.08f)
             )
             val rim = Brush.verticalGradient(
-                0f to Color(240, 242, 250, 145),
-                0.18f to Color(210, 215, 230, 52),
-                0.5f to Color(180, 185, 200, 32),
-                0.82f to Color(210, 215, 230, 48),
-                1f to Color(230, 235, 245, 110)
+                0f to Color(235, 235, 235, 118),
+                0.16f to Color(200, 200, 200, 30),
+                0.5f to Color(160, 160, 160, 16),
+                0.84f to Color(200, 200, 200, 24),
+                1f to Color(215, 215, 215, 86)
             )
-            val left = size.width * 0.16f
-            val right = size.width * 0.84f
+            val left = size.width * 0.20f
+            val right = size.width * 0.80f
             val topGlint = Brush.horizontalGradient(
-                listOf(Color.Transparent, Color.White.copy(alpha = 0.78f), Color.Transparent),
+                listOf(Color.Transparent, Color.White.copy(alpha = 0.72f), Color.Transparent),
                 startX = left,
                 endX = right
             )
             val bottomGlint = Brush.horizontalGradient(
-                listOf(Color.Transparent, Color.White.copy(alpha = 0.42f), Color.Transparent),
-                startX = left,
-                endX = right
+                listOf(Color.Transparent, Color.White.copy(alpha = 0.40f), Color.Transparent),
+                startX = left - size.width * 0.04f,
+                endX = right - size.width * 0.04f
             )
-            val rimStroke = 1.25.dp.toPx()
+            val rimStroke = 1.2.dp.toPx()
             val glintStroke = 1.4.dp.toPx()
 
             onDrawBehind {
-                val wash = AmbientWashState.image
-                val rootWidth = root.width
-                val rootHeight = root.height
-                clipPath(clip) {
-                    drawRect(frostedBody)
-                    if (wash != null && rootWidth > 0 && rootHeight > 0) {
-                        val sx = wash.width / rootWidth.toFloat()
-                        val sy = wash.height / rootHeight.toFloat()
-                        val srcX = (origin.x * sx).toInt().coerceIn(0, (wash.width - 1).coerceAtLeast(0))
-                        val srcY = (origin.y * sy).toInt().coerceIn(0, (wash.height - 1).coerceAtLeast(0))
-                        val srcW = (size.width * sx).toInt().coerceIn(1, (wash.width - srcX).coerceAtLeast(1))
-                        val srcH = (size.height * sy).toInt().coerceIn(1, (wash.height - srcY).coerceAtLeast(1))
-                        drawImage(
-                            image = wash,
-                            srcOffset = IntOffset(srcX, srcY),
-                            srcSize = IntSize(srcW, srcH),
-                            dstSize = IntSize(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1)),
-                            alpha = 0.42f,
-                            filterQuality = FilterQuality.Low
-                        )
-                    }
-                    drawRect(frostVeil)
-                    drawRect(innerGlow)
-                }
+                drawOutline(outline, body)
+                drawOutline(outline, glow, style = Stroke(3.dp.toPx()))
                 drawOutline(outline, rim, style = Stroke(rimStroke))
                 if (glints) {
                     drawLine(topGlint, Offset(left, 1.dp.toPx()), Offset(right, 1.dp.toPx()), strokeWidth = glintStroke)
                     drawLine(
                         bottomGlint,
-                        Offset(left, size.height - 1.dp.toPx()),
-                        Offset(right, size.height - 1.dp.toPx()),
+                        Offset(left - size.width * 0.04f, size.height - 1.dp.toPx()),
+                        Offset(right - size.width * 0.04f, size.height - 1.dp.toPx()),
                         strokeWidth = glintStroke
                     )
                 }
@@ -413,13 +383,13 @@ fun NuvioLegacyPrimaryPlayButton(
         animationSpec = tween(durationMillis = 150),
         label = "appleTvPlayScale"
     )
-    val bgColor by animateColorAsState(
-        targetValue = if (isFocused) accentColor else Color.White.copy(alpha = 0.18f),
-        animationSpec = tween(durationMillis = 150),
-        label = "appleTvPlayBg"
-    )
-    val focusedContent = if (accentColor.luminance() > 0.60f) Color(0xFF0B0D12) else Color.White
-    val contentColor = if (isFocused) focusedContent else Color.White
+    val focusedGlassColor = if (accentColor == Color.White || accentColor == Color(0xFFFFFFFF)) {
+        Color.White.copy(alpha = 0.22f)
+    } else {
+        accentColor.copy(alpha = 0.34f)
+    }
+    val unfocusedGlassColor = Color(70, 70, 70, 56)
+    val contentColor = Color.White
     val label = if (isPlaying) stringResource(R.string.cd_pause) else stringResource(R.string.cd_play)
 
     Surface(
@@ -448,10 +418,10 @@ fun NuvioLegacyPrimaryPlayButton(
             shape = RoundedCornerShape(999.dp)
         ),
         colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
-            containerColor = bgColor,
-            focusedContainerColor = accentColor,
+            containerColor = unfocusedGlassColor,
+            focusedContainerColor = focusedGlassColor,
             contentColor = contentColor,
-            focusedContentColor = focusedContent
+            focusedContentColor = Color.White
         ),
         border = androidx.tv.material3.ClickableSurfaceDefaults.border(
             border = androidx.tv.material3.Border(
@@ -515,7 +485,12 @@ fun NuvioLegacyCircleIconButton(
         animationSpec = tween(durationMillis = 150),
         label = "appleTvDockBtnScale"
     )
-    val focusedContentColor = if (accentColor.luminance() > 0.60f) Color(0xFF0B0D12) else Color.White
+    val focusedContentColor = Color.White
+    val focusedGlassColor = if (accentColor == Color.White || accentColor == Color(0xFFFFFFFF)) {
+        Color.White.copy(alpha = 0.22f)
+    } else {
+        accentColor.copy(alpha = 0.34f)
+    }
 
     Surface(
         onClick = onClick,
@@ -545,8 +520,8 @@ fun NuvioLegacyCircleIconButton(
             shape = RoundedCornerShape(999.dp)
         ),
         colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
-            containerColor = Color.White.copy(alpha = 0.11f),
-            focusedContainerColor = accentColor,
+            containerColor = Color(70, 70, 70, 42),
+            focusedContainerColor = focusedGlassColor,
             contentColor = Color.White.copy(alpha = 0.94f),
             focusedContentColor = focusedContentColor
         ),

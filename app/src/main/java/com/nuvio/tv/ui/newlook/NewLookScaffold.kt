@@ -93,6 +93,7 @@ class NewLookChrome internal constructor(
     val contentInset: Dp,
     private val menuFocusedState: State,
     private val focusTopBarAction: () -> Unit,
+    private val focusLastTabAction: () -> Unit,
     private val topBarContent: @Composable (onDown: () -> Unit, modifier: Modifier) -> Unit,
     private val pageScroll: androidx.compose.runtime.MutableFloatState
 ) {
@@ -105,6 +106,12 @@ class NewLookChrome internal constructor(
 
     val topBarFocused: Boolean get() = menuFocusedState.bar
 
+    /** Optional hook set by Home so pressing Right from the last tab (Settings) focuses the Clock Island. */
+    var onRightFromLastTab: (() -> Unit)? = null
+
+    /** Optional hook set by Home so pressing Menu/Up in the top bar opens the Quick Control Center. */
+    var onOpenControlCenter: (() -> Unit)? = null
+
     /**
      * How far Home's page has scrolled from the top, in px. With the menu on top and showing, the avatar moves up with
      * it, as the tab bar it sits beside is part of the page (it stayed put over the first row's title before).
@@ -115,6 +122,9 @@ class NewLookChrome internal constructor(
 
     /** Menu on top: moves focus to the current screen's tab (Up from Home's window). */
     fun focusTopBar() = focusTopBarAction()
+
+    /** Menu on top: moves focus to the rightmost tab (Settings) when pressing Left from Home's Clock Island. */
+    fun focusLastTopBarTab() = focusLastTabAction()
 
     /** Menu on top: the glass tab bar, for Home to place in its page. [onDown] is where Down goes from it. */
     @Composable
@@ -211,6 +221,12 @@ internal fun NewLookScaffold(
         focusAfterLayout(itemFocus.getValue(route))
     }
 
+    fun openLastTab() {
+        val route = barItems.lastOrNull()?.route ?: selectedOrFirst() ?: return
+        if (menuOnTop && !onHome) overlayBarShown = true
+        focusAfterLayout(itemFocus.getValue(route))
+    }
+
     fun closeMenu() {
         overlayBarShown = false
         runCatching { contentFocusRequester.requestFocus() }
@@ -240,6 +256,8 @@ internal fun NewLookScaffold(
         onExitApp()
     }
 
+    val latestRightFromLast = remember { mutableStateOf<(() -> Unit)?>(null) }
+    val latestOpenControlCenter = remember { mutableStateOf<(() -> Unit)?>(null) }
     val topBar: @Composable (() -> Unit, Modifier) -> Unit = { onDown, modifier ->
         GlassTabBar(
             items = barItems,
@@ -250,6 +268,12 @@ internal fun NewLookScaffold(
             onLeftFromFirst = {
                 if (onHome) focusAfterLayout(avatarFocus)
             },
+            onRightFromLast = {
+                latestRightFromLast.value?.invoke()
+            },
+            onOpenControlCenter = {
+                latestOpenControlCenter.value?.invoke()
+            },
             onDown = onDown,
             drawerIcon = drawerIcon,
             modifier = modifier
@@ -259,6 +283,7 @@ internal fun NewLookScaffold(
     // current route), never the ones from when it was made.
     val latestTopBar by rememberUpdatedState(topBar)
     val latestOpenMenu by rememberUpdatedState(::openMenu)
+    val latestOpenLastTab by rememberUpdatedState(::openLastTab)
     // Root screens make room for the sidebar only while it stays on screen; hidden or on top, they use the full
     // width (Genres and Search had a wasted column on the left).
     val sidebarInset = if (!menuOnTop && !hideMenu) NuvioLayout.tokens.sidebarContentOffset else 0.dp
@@ -269,10 +294,13 @@ internal fun NewLookScaffold(
             contentInset = sidebarInset,
             menuFocusedState = focusState,
             focusTopBarAction = { latestOpenMenu() },
+            focusLastTabAction = { latestOpenLastTab() },
             topBarContent = { onDown, modifier -> latestTopBar(onDown, modifier) },
             pageScroll = pageScroll
         )
     }
+    latestRightFromLast.value = chrome.onRightFromLastTab
+    latestOpenControlCenter.value = chrome.onOpenControlCenter
 
     Box(
         modifier = Modifier
@@ -636,6 +664,8 @@ internal fun GlassTabBar(
     onFocusChanged: (Boolean) -> Unit,
     onClick: (String) -> Unit,
     onLeftFromFirst: () -> Unit,
+    onRightFromLast: () -> Unit = {},
+    onOpenControlCenter: () -> Unit = {},
     onDown: () -> Unit,
     drawerIcon: @Composable (item: DrawerItem, tint: Color, modifier: Modifier) -> Unit,
     modifier: Modifier = Modifier
@@ -658,19 +688,30 @@ internal fun GlassTabBar(
             .focusGroup()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_MENU || event.key == Key.Menu) {
+                    onOpenControlCenter()
+                    return@onPreviewKeyEvent true
+                }
                 when (event.key) {
                     Key.DirectionDown -> {
                         onDown()
                         true
                     }
-                    Key.DirectionUp -> true
+                    Key.DirectionUp -> {
+                        onRightFromLast()
+                        true
+                    }
                     Key.DirectionLeft -> {
                         if (focusedIndex <= 0) onLeftFromFirst()
                         else items.getOrNull(focusedIndex - 1)?.let { runCatching { itemFocus.getValue(it.route).requestFocus() } }
                         true
                     }
                     Key.DirectionRight -> {
-                        items.getOrNull(focusedIndex + 1)?.let { runCatching { itemFocus.getValue(it.route).requestFocus() } }
+                        if (focusedIndex >= items.lastIndex) {
+                            onRightFromLast()
+                        } else {
+                            items.getOrNull(focusedIndex + 1)?.let { runCatching { itemFocus.getValue(it.route).requestFocus() } }
+                        }
                         true
                     }
                     else -> false

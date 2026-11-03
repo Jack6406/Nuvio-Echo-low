@@ -2397,12 +2397,12 @@ private fun PlayerControlsOverlay(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(160.dp)
+                .height(140.dp)
                 .align(Alignment.TopCenter)
                 .background(
                     Brush.verticalGradient(
-                        0f to Color.Black.copy(alpha = 0.62f),
-                        0.45f to Color.Black.copy(alpha = 0.26f),
+                        0f to Color.Black.copy(alpha = 0.38f),
+                        0.5f to Color.Black.copy(alpha = 0.14f),
                         1f to Color.Transparent
                     )
                 )
@@ -2410,14 +2410,14 @@ private fun PlayerControlsOverlay(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(300.dp)
+                .height(240.dp)
                 .align(Alignment.BottomCenter)
                 .background(
                     Brush.verticalGradient(
                         0f to Color.Transparent,
-                        0.4f to Color.Black.copy(alpha = 0.32f),
-                        0.75f to Color.Black.copy(alpha = 0.68f),
-                        1f to Color.Black.copy(alpha = 0.85f)
+                        0.5f to Color.Black.copy(alpha = 0.16f),
+                        0.8f to Color.Black.copy(alpha = 0.32f),
+                        1f to Color.Black.copy(alpha = 0.46f)
                     )
                 )
         )
@@ -3237,9 +3237,7 @@ private fun PlayerClockOverlay(
 
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(Color(0xCC141416), RoundedCornerShape(999.dp))
-            .border(0.75.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(999.dp))
+            .appleTvFrostedGlass(RoundedCornerShape(999.dp))
             .padding(horizontal = 14.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -3315,10 +3313,7 @@ private fun AspectRatioIndicator(text: String) {
     // Floating pill indicator for aspect ratio changes
     Row(
         modifier = Modifier
-            .background(
-                color = Color.Black.copy(alpha = 0.85f),
-                shape = RoundedCornerShape(NuvioTheme.spacing.xl)
-            )
+            .appleTvFrostedGlass(RoundedCornerShape(999.dp))
             .padding(horizontal = 20.dp, vertical = NuvioTheme.spacing.md),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically

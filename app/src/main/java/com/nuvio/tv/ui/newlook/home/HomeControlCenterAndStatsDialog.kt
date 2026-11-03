@@ -66,9 +66,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.BorderStroke
+import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
+import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import com.nuvio.tv.ui.newlook.glassLens
+import com.nuvio.tv.ui.newlook.glassSurface
+import com.nuvio.tv.ui.newlook.menuFrost
 import coil3.imageLoader
 import com.nuvio.tv.core.sync.ProfileSettingsSyncService
 import com.nuvio.tv.core.sync.StartupSyncService
@@ -118,6 +124,7 @@ internal fun HomeTopRightClockIsland(
     onFocusedChanged: (Boolean) -> Unit,
     onOpenControlCenter: () -> Unit,
     onOpenStats: () -> Unit,
+    onLeftToTopBar: () -> Unit,
     onDownToHero: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -132,47 +139,20 @@ internal fun HomeTopRightClockIsland(
         }
     }
 
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.05f else 1.0f,
-        animationSpec = tween(160),
-        label = "clockIslandScale"
-    )
-    val bgBrush = if (isFocused) {
-        Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = 0.28f),
-                Color(0xFF1E222C).copy(alpha = 0.88f)
-            )
-        )
-    } else {
-        Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = 0.14f),
-                Color(0xFF101218).copy(alpha = 0.76f)
-            )
-        )
-    }
-    val borderColor by animateColorAsState(
-        targetValue = if (isFocused) Color.White.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.22f),
-        animationSpec = tween(160),
-        label = "clockIslandBorder"
-    )
-
+    val shape = RoundedCornerShape(19.dp)
     val subtitle = when {
         !statusNotice.isNullOrBlank() -> statusNotice
         continueWatchingCount > 0 -> "$continueWatchingCount In Progress"
         else -> "Control Center"
     }
 
-    Row(
+    Surface(
+        onClick = onOpenControlCenter,
         modifier = modifier
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .clip(RoundedCornerShape(999.dp))
-            .background(bgBrush)
-            .border(1.dp, borderColor, RoundedCornerShape(999.dp))
+            .height(36.dp)
+            .menuFrost(shape)
+            .glassSurface(shape)
+            .then(if (isFocused) Modifier.glassLens(shape) else Modifier)
             .focusRequester(focusRequester)
             .onFocusChanged { state ->
                 isFocused = state.isFocused
@@ -180,61 +160,80 @@ internal fun HomeTopRightClockIsland(
             }
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_MENU || event.key == Key.Menu || event.key == Key.Info) {
+                    onOpenStats()
+                    return@onPreviewKeyEvent true
+                }
                 when (event.key) {
+                    Key.DirectionLeft -> {
+                        onLeftToTopBar()
+                        true
+                    }
                     Key.DirectionDown -> {
                         onDownToHero()
                         true
                     }
-                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
-                        onOpenControlCenter()
-                        true
-                    }
-                    Key.Menu, Key.Info -> {
-                        onOpenStats()
-                        true
-                    }
+                    Key.DirectionUp, Key.DirectionRight -> true
                     else -> false
                 }
-            }
-            .focusable()
-            .clickable { onOpenControlCenter() }
-            .padding(horizontal = 14.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+            },
+        shape = ClickableSurfaceDefaults.shape(shape = shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            focusedContainerColor = Color.White.copy(alpha = 0.16f),
+            contentColor = Color.White,
+            focusedContentColor = Color.White
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = androidx.tv.material3.Border.None,
+            focusedBorder = androidx.tv.material3.Border(
+                border = BorderStroke(1.25.dp, Color.White.copy(alpha = 0.88f)),
+                shape = shape
+            )
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f)
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .size(7.dp)
-                .clip(CircleShape)
-                .background(if (!statusNotice.isNullOrBlank()) Color(0xFF4ADE80) else Color(0xFF60A5FA))
-        )
-        Text(
-            text = subtitle,
-            color = Color.White.copy(alpha = if (isFocused) 0.95f else 0.78f),
-            fontSize = 11.5.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Box(
-            modifier = Modifier
-                .width(1.dp)
-                .height(12.dp)
-                .background(Color.White.copy(alpha = 0.20f))
-        )
-        Text(
-            text = clockText,
-            color = Color.White,
-            fontSize = 12.5.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1
-        )
-        Icon(
-            imageVector = Icons.Default.Tune,
-            contentDescription = "Control Center",
-            tint = Color.White.copy(alpha = if (isFocused) 1f else 0.76f),
-            modifier = Modifier.size(14.dp)
-        )
+                .height(36.dp)
+                .padding(horizontal = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(6.5.dp)
+                    .clip(CircleShape)
+                    .background(if (!statusNotice.isNullOrBlank()) Color(0xFF4ADE80) else Color(0xFF60A5FA))
+            )
+            Text(
+                text = subtitle,
+                color = if (isFocused) Color.White else Color(0xFFE6E6E6),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .height(12.dp)
+                    .background(Color.White.copy(alpha = 0.24f))
+            )
+            Text(
+                text = clockText,
+                color = Color.White,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+            Icon(
+                imageVector = Icons.Default.Tune,
+                contentDescription = "Control Center",
+                tint = if (isFocused) Color.White else Color(0xFFE6E6E6),
+                modifier = Modifier.size(14.dp)
+            )
+        }
     }
 }
 
