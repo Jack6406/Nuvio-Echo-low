@@ -51,7 +51,7 @@ internal fun PlayerRuntimeController.refreshCurrentStreamBadges() {
         }
         val syntheticStream = matchedFromSources ?: Stream(
             name = state.currentStreamName ?: streamName,
-            title = state.currentStreamTitle ?: currentStreamTitle ?: state.streamInfoData?.filename ?: currentFilename,
+            title = state.currentStreamTitle ?: state.streamInfoData?.filename ?: currentFilename,
             description = listOfNotNull(
                 state.currentStreamDescription ?: currentStreamDescription,
                 state.streamInfoData?.filename ?: currentFilename,

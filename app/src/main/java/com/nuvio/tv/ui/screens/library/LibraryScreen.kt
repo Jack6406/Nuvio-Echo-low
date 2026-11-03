@@ -76,7 +76,7 @@ private sealed interface LibraryOverlay {
     data class Sort(val anchor: Rect) : LibraryOverlay
     data class GenreFilter(val anchor: Rect) : LibraryOverlay
     data class YearFilter(val anchor: Rect) : LibraryOverlay
-    data class BinOptions(val bin: Bin, val anchor: Rect)
+    data class BinOptions(val bin: Bin, val anchor: Rect) : LibraryOverlay
     data class TitleOptions(val bin: Bin, val title: BinTitle, val anchor: Rect) : LibraryOverlay
     data object Create : LibraryOverlay
     data class Rename(val bin: Bin) : LibraryOverlay
