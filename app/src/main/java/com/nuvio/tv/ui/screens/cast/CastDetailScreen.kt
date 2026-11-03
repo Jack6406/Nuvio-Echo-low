@@ -110,6 +110,7 @@ fun CastDetailScreen(
     val uiState by viewModel.uiState.collectAsState()
     val watchedMovieIds by viewModel.watchedMovieIds.collectAsState()
     val watchedSeriesIds by viewModel.watchedSeriesIds.collectAsState()
+    val watchedDates by viewModel.watchedDates.collectAsState()
     var isBiographyExpanded by rememberSaveable(viewModel.personId) { mutableStateOf(false) }
 
     BackHandler {
@@ -150,7 +151,8 @@ fun CastDetailScreen(
                         isItemWatched = { item ->
                             if (item.apiType == "movie") item.id in watchedMovieIds
                             else item.id in watchedSeriesIds
-                        }
+                        },
+                        watchedDates = watchedDates
                     )
                 }
             }
@@ -176,7 +178,8 @@ private fun CastDetailContent(
     onNavigateToDetail: (itemId: String, itemType: String, addonBaseUrl: String?) -> Unit,
     posterOptions: com.nuvio.tv.ui.components.posteroptions.PosterOptionsController,
     posterCardCornerRadiusDp: Int = 12,
-    isItemWatched: (MetaPreview) -> Boolean = { false }
+    isItemWatched: (MetaPreview) -> Boolean = { false },
+    watchedDates: Map<String, Long> = emptyMap()
 ) {
     val backgroundColor = NuvioTheme.colors.Background
     val accentColor = NuvioTheme.colors.Secondary
@@ -265,10 +268,14 @@ private fun CastDetailContent(
                         shrinkVertically(shrinkTowards = Alignment.Top) +
                         slideOutVertically(targetOffsetY = { it })
                 ) {
+                    val watchedCount = remember(allCredits, isItemWatched) {
+                        allCredits.count { isItemWatched(it) }
+                    }
                     Column {
                         SectionHeader(
                             title = stringResource(R.string.cast_detail_filmography),
-                            count = allCredits.size
+                            count = allCredits.size,
+                            watchedCount = watchedCount
                         )
                         FilmographyRow(
                             credits = allCredits,
@@ -284,7 +291,8 @@ private fun CastDetailContent(
                             onItemLongPress = { item ->
                                 posterOptions.show(item, null)
                             },
-                            isItemWatched = isItemWatched
+                            isItemWatched = isItemWatched,
+                            watchedDates = watchedDates
                         )
                     }
                 }
@@ -526,32 +534,69 @@ private fun HeroSection(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun SectionHeader(title: String, count: Int) {
+private fun SectionHeader(title: String, count: Int, watchedCount: Int = 0) {
+    val accent = NuvioTheme.colors.Secondary
+    val progress = if (count > 0) (watchedCount.toFloat() / count.toFloat()).coerceIn(0f, 1f) else 0f
+    val pct = (progress * 100f).toInt()
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = NuvioTheme.spacing.xxxl, end = NuvioTheme.spacing.xxxl, top = NuvioTheme.spacing.md, bottom = NuvioTheme.spacing.sm),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleLarge.copy(
-                fontWeight = FontWeight.SemiBold
-            ),
-            color = NuvioTheme.colors.TextPrimary
-        )
-        Spacer(modifier = Modifier.width(NuvioTheme.spacing.md))
-        Text(
-            text = "$count",
-            style = MaterialTheme.typography.labelMedium,
-            color = NuvioTheme.colors.TextTertiary,
-            modifier = Modifier
-                .background(
-                    color = NuvioTheme.colors.SurfaceVariant,
-                    shape = RoundedCornerShape(NuvioTheme.radii.xs)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontWeight = FontWeight.SemiBold
+                ),
+                color = NuvioTheme.colors.TextPrimary
+            )
+            Spacer(modifier = Modifier.width(NuvioTheme.spacing.md))
+            Text(
+                text = "$count",
+                style = MaterialTheme.typography.labelMedium,
+                color = NuvioTheme.colors.TextTertiary,
+                modifier = Modifier
+                    .background(
+                        color = NuvioTheme.colors.SurfaceVariant,
+                        shape = RoundedCornerShape(NuvioTheme.radii.xs)
+                    )
+                    .padding(horizontal = NuvioTheme.spacing.sm, vertical = NuvioTheme.spacing.xxs)
+            )
+        }
+        if (count > 0) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(accent.copy(alpha = 0.14f))
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "You watched $watchedCount of $count ($pct%)",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = Color.White
                 )
-                .padding(horizontal = NuvioTheme.spacing.sm, vertical = NuvioTheme.spacing.xxs)
-        )
+                Box(
+                    modifier = Modifier
+                        .width(96.dp)
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Color.White.copy(alpha = 0.18f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(progress)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(accent)
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -566,7 +611,8 @@ private fun FilmographyRow(
     onRestoreFocusHandled: () -> Unit = {},
     onItemClick: (MetaPreview) -> Unit,
     onItemLongPress: (MetaPreview) -> Unit = {},
-    isItemWatched: (MetaPreview) -> Boolean = { false }
+    isItemWatched: (MetaPreview) -> Boolean = { false },
+    watchedDates: Map<String, Long> = emptyMap()
 ) {
     val hasRequestedInitialFocus = remember(credits) { mutableStateOf(false) }
     val restoreFocusRequester = remember { FocusRequester() }
@@ -607,31 +653,55 @@ private fun FilmographyRow(
                 else -> null
             }
 
-            GridContentCard(
-                item = item,
-                onClick = { onItemClick(item) },
-                onLongPress = { onItemLongPress(item) },
-                isWatched = isItemWatched(item),
-                modifier = if (isFirstItem) {
-                    Modifier.onGloballyPositioned {
-                        if (!hasRequestedInitialFocus.value) {
-                            hasRequestedInitialFocus.value = true
-                            runCatching { firstItemFocusRequester.requestFocus() }
+            val watched = isItemWatched(item)
+            val watchedEpochMs = watchedDates[item.id]
+            Box {
+                GridContentCard(
+                    item = item,
+                    onClick = { onItemClick(item) },
+                    onLongPress = { onItemLongPress(item) },
+                    isWatched = watched,
+                    modifier = if (isFirstItem) {
+                        Modifier.onGloballyPositioned {
+                            if (!hasRequestedInitialFocus.value) {
+                                hasRequestedInitialFocus.value = true
+                                runCatching { firstItemFocusRequester.requestFocus() }
+                            }
+                        }
+                    } else {
+                        Modifier
+                    },
+                    posterCardStyle = posterCardStyle,
+                    showLabel = true,
+                    focusRequester = itemFocusRequester,
+                    onFocused = {
+                        if (isRestoreTarget && restoreFocusToken > 0) {
+                            onRestoreFocusHandled()
+                            restorePending = false
                         }
                     }
-                } else {
-                    Modifier
-                },
-                posterCardStyle = posterCardStyle,
-                showLabel = true,
-                focusRequester = itemFocusRequester,
-                onFocused = {
-                    if (isRestoreTarget && restoreFocusToken > 0) {
-                        onRestoreFocusHandled()
-                        restorePending = false
+                )
+                if (watched && watchedEpochMs != null && watchedEpochMs > 0L) {
+                    val dateLabel = remember(watchedEpochMs) {
+                        SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(watchedEpochMs))
+                    }
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(6.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xD910131C))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "✓ $dateLabel",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF7CFF9B)
+                        )
                     }
                 }
-            )
+            }
         }
     }
 }

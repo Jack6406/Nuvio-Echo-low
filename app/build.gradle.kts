@@ -120,8 +120,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 24
         targetSdk = 36
-        val ciRunNumber = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull?.trim()?.toIntOrNull() ?: 0
-        versionCode = 1070 + ciRunNumber
+        val minuteEpoch = (System.currentTimeMillis() / 60_000L).toInt()
+        versionCode = maxOf(2000 + (providers.environmentVariable("GITHUB_RUN_NUMBER").orNull?.trim()?.toIntOrNull() ?: 0), minuteEpoch)
         versionName = "1.1.0-beta.6"
 
         buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
@@ -207,6 +207,15 @@ android {
     }
 
     signingConfigs {
+        getByName("debug") {
+            val bundledKeystore = file("keystore/nuvio-echo.jks")
+            if (bundledKeystore.exists()) {
+                keyAlias = releaseKeyAliasValue
+                keyPassword = releaseKeyPasswordValue
+                storeFile = bundledKeystore
+                storePassword = releaseStorePasswordValue
+            }
+        }
         create("release") {
             keyAlias = releaseKeyAliasValue
             keyPassword = releaseKeyPasswordValue

@@ -205,52 +205,36 @@ internal fun NdPreselectedStreamBadgesRow(
 
     Column(modifier = modifier) {
         Spacer(Modifier.height(4.dp))
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            if (preselected.addonName.isNotBlank()) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(Color.White.copy(alpha = 0.14f))
-                        .border(0.5.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(5.dp))
-                        .padding(horizontal = 7.dp, vertical = 2.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = preselected.addonName,
-                        color = Color(0xFF7CFF9B),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1
-                    )
+        if (preselected.customBadges.isNotEmpty()) {
+            StreamBadgeChips(
+                badges = preselected.customBadges,
+                fileSizeBytes = preselected.fileSizeBytes,
+                showFileSizeBadge = preselected.fileSizeBytes != null
+            )
+        } else {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                preselected.specChips.forEach { chip ->
+                    Box(
+                        modifier = Modifier
+                            .height(20.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xFF0A0C0C))
+                            .border(1.2.dp, Color.White.copy(alpha = 0.90f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 7.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = chip,
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1
+                        )
+                    }
                 }
-            }
-            preselected.specChips.forEach { chip ->
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(Color(0xCC16181E))
-                        .border(0.5.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(5.dp))
-                        .padding(horizontal = 7.dp, vertical = 2.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = chip,
-                        color = Color.White.copy(alpha = 0.94f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1
-                    )
-                }
-            }
-            if (preselected.specChips.isEmpty() && preselected.customBadges.isNotEmpty()) {
-                StreamBadgeChips(
-                    badges = preselected.customBadges,
-                    fileSizeBytes = null,
-                    showFileSizeBadge = false
-                )
             }
         }
     }

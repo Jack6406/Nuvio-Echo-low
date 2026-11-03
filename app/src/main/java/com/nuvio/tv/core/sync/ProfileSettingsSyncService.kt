@@ -206,7 +206,8 @@ class ProfileSettingsSyncService @Inject constructor(
         "track_preference",
         "beta_performance_settings",
         "torrent_settings",
-        "general_settings"
+        "general_settings",
+        "custom_backdrops"
     )
 
     init {

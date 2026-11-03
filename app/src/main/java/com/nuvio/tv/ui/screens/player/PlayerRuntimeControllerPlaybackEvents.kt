@@ -278,6 +278,11 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                         )
                     }
                     updateMpvAvailableTracks()
+                    if (firstFrameReady && (_uiState.value.streamInfoData == null || _uiState.value.currentStreamBadges.isEmpty())) {
+                        val info = buildStreamInfoData()
+                        _uiState.update { it.copy(streamInfoData = info) }
+                        refreshCurrentStreamBadges()
+                    }
                     ensureSkipFileChecks(pos)
                     updateActiveSkipInterval(pos)
                     if (!_playbackTimeline.value.isLive) {
@@ -345,6 +350,11 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                             torrentBufferingProgress = progress
                         )
                     }
+                }
+                if (hasRenderedFirstFrame && (_uiState.value.streamInfoData == null || _uiState.value.currentStreamBadges.isEmpty())) {
+                    val info = buildStreamInfoData()
+                    _uiState.update { it.copy(streamInfoData = info) }
+                    refreshCurrentStreamBadges()
                 }
                 ensureSkipFileChecks(pos)
                 updateActiveSkipInterval(pos)

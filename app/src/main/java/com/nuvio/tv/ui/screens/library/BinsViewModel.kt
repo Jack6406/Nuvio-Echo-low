@@ -75,7 +75,8 @@ class BinsViewModel @Inject constructor(
     private val layoutPreferences: LayoutPreferenceDataStore,
     private val watchProgressRepository: WatchProgressRepository,
     private val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
-    private val metaRepository: MetaRepository
+    private val metaRepository: MetaRepository,
+    private val libraryRepository: com.nuvio.tv.domain.repository.LibraryRepository
 ) : ViewModel() {
 
     private val local = MutableStateFlow(Local())
@@ -97,7 +98,7 @@ class BinsViewModel @Inject constructor(
         watchedSeriesStateHolder.fullyWatchedSeriesIds
     ) { movies, series -> movies to series }
 
-    val uiState: StateFlow<BinsUiState> = combine(repository.state, local, posterLayout, watched) { state, local, layout, watched ->
+    val uiState: StateFlow<BinsUiState> = combine(repository.state, local, posterLayout, watched, libraryRepository.libraryItems) { state, local, layout, watched, syncedItems ->
         val (width, corner, pattern) = layout
         val bins = BinsReducer.sortedBins(state.bins, state.sort)
         val open = local.openBinId?.let { id -> state.bins.firstOrNull { it.id == id } }
@@ -106,8 +107,24 @@ class BinsViewModel @Inject constructor(
             val previews = sorted.map { it.toPreview() }.withCustomPosterUrls(pattern)
             sorted.zip(previews) { entry, preview -> BinTitle(entry, preview) }
         }.orEmpty()
-        val uniqueEntries = bins
-            .flatMap { it.entries }
+        val syncedAsBinEntries = syncedItems.map { item ->
+            BinEntry(
+                id = item.id,
+                type = item.type,
+                name = item.name,
+                poster = item.poster,
+                background = item.background,
+                logo = item.logo,
+                description = item.description,
+                releaseInfo = item.releaseInfo,
+                imdbRating = item.imdbRating,
+                genres = item.genres,
+                addonBaseUrl = item.addonBaseUrl,
+                addedAt = item.listedAt,
+                viewedAt = item.listedAt
+            )
+        }
+        val uniqueEntries = (bins.flatMap { it.entries } + syncedAsBinEntries)
             .distinctBy { it.key }
         val sortedAllEntries = BinsReducer.sortedEntries(uniqueEntries, state.sort)
         val allPreviews = sortedAllEntries.map { it.toPreview() }.withCustomPosterUrls(pattern)

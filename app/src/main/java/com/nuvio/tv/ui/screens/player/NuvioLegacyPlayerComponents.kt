@@ -3,13 +3,10 @@
 package com.nuvio.tv.ui.screens.player
 
 import android.content.Context
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -41,12 +38,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.painter.Painter
@@ -57,13 +64,18 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
@@ -75,6 +87,7 @@ import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.components.StreamBadgeChips
+import com.nuvio.tv.ui.newlook.AmbientWashState
 import com.nuvio.tv.ui.util.localizeEpisodeTitle
 import java.util.Locale
 
@@ -132,9 +145,114 @@ fun rememberPlayerAccentColor(): Color {
 }
 
 /**
+ * Item 3: True Frosted Glass surface for the Media Player control dock & capsules (matching 1000041796.jpg).
+ * Combines the pre-blurred ambient wash behind the dock with a milky frosted slate/silver gradient,
+ * radial inner diffusion, 5-stop metallic rim, and top/bottom specular light glints so video frames and
+ * subtitles behind the dock never bleed harshly through the controls.
+ */
+@Composable
+fun Modifier.appleTvFrostedGlass(
+    shape: Shape = RoundedCornerShape(999.dp),
+    glints: Boolean = true
+): Modifier {
+    val root = LocalView.current.rootView
+    var origin by remember { mutableStateOf(Offset.Zero) }
+    return this
+        .then(
+            if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) Modifier
+            else Modifier.shadow(
+                elevation = 16.dp,
+                shape = shape,
+                clip = false,
+                ambientColor = Color.Black.copy(alpha = 0.50f),
+                spotColor = Color.Black.copy(alpha = 0.50f)
+            )
+        )
+        .onGloballyPositioned { origin = it.positionInWindow() }
+        .drawWithCache {
+            val outline = shape.createOutline(size, layoutDirection, this)
+            val clip = Path().apply { addOutline(outline) }
+            val frostedBody = Brush.verticalGradient(
+                0f to Color(0xF0222634),
+                0.48f to Color(0xF2171A24),
+                1f to Color(0xF511131B)
+            )
+            val frostVeil = Brush.verticalGradient(
+                0f to Color.White.copy(alpha = 0.16f),
+                0.35f to Color.White.copy(alpha = 0.07f),
+                0.70f to Color.White.copy(alpha = 0.04f),
+                1f to Color.White.copy(alpha = 0.10f)
+            )
+            val innerGlow = Brush.radialGradient(
+                colors = listOf(Color.White.copy(alpha = 0.09f), Color.Transparent),
+                center = Offset(size.width * 0.5f, 0f),
+                radius = size.maxDimension * 0.75f
+            )
+            val rim = Brush.verticalGradient(
+                0f to Color(240, 242, 250, 145),
+                0.18f to Color(210, 215, 230, 52),
+                0.5f to Color(180, 185, 200, 32),
+                0.82f to Color(210, 215, 230, 48),
+                1f to Color(230, 235, 245, 110)
+            )
+            val left = size.width * 0.16f
+            val right = size.width * 0.84f
+            val topGlint = Brush.horizontalGradient(
+                listOf(Color.Transparent, Color.White.copy(alpha = 0.78f), Color.Transparent),
+                startX = left,
+                endX = right
+            )
+            val bottomGlint = Brush.horizontalGradient(
+                listOf(Color.Transparent, Color.White.copy(alpha = 0.42f), Color.Transparent),
+                startX = left,
+                endX = right
+            )
+            val rimStroke = 1.25.dp.toPx()
+            val glintStroke = 1.4.dp.toPx()
+
+            onDrawBehind {
+                val wash = AmbientWashState.image
+                val rootWidth = root.width
+                val rootHeight = root.height
+                clipPath(clip) {
+                    drawRect(frostedBody)
+                    if (wash != null && rootWidth > 0 && rootHeight > 0) {
+                        val sx = wash.width / rootWidth.toFloat()
+                        val sy = wash.height / rootHeight.toFloat()
+                        val srcX = (origin.x * sx).toInt().coerceIn(0, (wash.width - 1).coerceAtLeast(0))
+                        val srcY = (origin.y * sy).toInt().coerceIn(0, (wash.height - 1).coerceAtLeast(0))
+                        val srcW = (size.width * sx).toInt().coerceIn(1, (wash.width - srcX).coerceAtLeast(1))
+                        val srcH = (size.height * sy).toInt().coerceIn(1, (wash.height - srcY).coerceAtLeast(1))
+                        drawImage(
+                            image = wash,
+                            srcOffset = IntOffset(srcX, srcY),
+                            srcSize = IntSize(srcW, srcH),
+                            dstSize = IntSize(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1)),
+                            alpha = 0.42f,
+                            filterQuality = FilterQuality.Low
+                        )
+                    }
+                    drawRect(frostVeil)
+                    drawRect(innerGlow)
+                }
+                drawOutline(outline, rim, style = Stroke(rimStroke))
+                if (glints) {
+                    drawLine(topGlint, Offset(left, 1.dp.toPx()), Offset(right, 1.dp.toPx()), strokeWidth = glintStroke)
+                    drawLine(
+                        bottomGlint,
+                        Offset(left, size.height - 1.dp.toPx()),
+                        Offset(right, size.height - 1.dp.toPx()),
+                        strokeWidth = glintStroke
+                    )
+                }
+            }
+        }
+}
+
+/**
  * Apple TV+ Top-Left Cinematic Header:
  * Always displays the Movie or Series graphic ClearLogo (with automatic Metahub logo fallback when addon logo is null),
- * followed by the episode badge (`S1 · E1 — Episode Title`), `Year · Runtime`, and Apple TV frosted format pills.
+ * followed by the episode badge (`S1 · E1 — Episode Title`), `Year · Runtime`, and formatted stream badges (`1000041799.jpg`).
  */
 @Composable
 fun NuvioLegacyTopLeftBadges(
@@ -171,7 +289,7 @@ fun NuvioLegacyTopLeftBadges(
     val activeLogoUrl = logoCandidates.getOrNull(candidateIndex)
 
     Column(
-        modifier = modifier.widthIn(max = 560.dp),
+        modifier = modifier.widthIn(max = 620.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         if (activeLogoUrl != null) {
@@ -268,13 +386,13 @@ fun NuvioLegacyTopLeftBadges(
             }
         }
 
-        // Apple TV+ Frosted Format & Audio Pills directly under the logo & episode line
+        // Items 6 & 11: Formatted Stream Badges matching 1000041799.jpg
         NuvioLegacyInlineStreamBadges(uiState = uiState)
     }
 }
 
 /**
- * Apple TV+ Primary Play / Pause Pill inside the floating glass control dock.
+ * Apple TV+ Primary Play / Pause Pill inside the frosted glass control dock.
  */
 @Composable
 fun NuvioLegacyPrimaryPlayButton(
@@ -291,12 +409,12 @@ fun NuvioLegacyPrimaryPlayButton(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.06f else 1f,
+        targetValue = if (isFocused) 1.05f else 1f,
         animationSpec = tween(durationMillis = 150),
         label = "appleTvPlayScale"
     )
     val bgColor by animateColorAsState(
-        targetValue = if (isFocused) accentColor else Color.White.copy(alpha = 0.16f),
+        targetValue = if (isFocused) accentColor else Color.White.copy(alpha = 0.18f),
         animationSpec = tween(durationMillis = 150),
         label = "appleTvPlayBg"
     )
@@ -337,7 +455,7 @@ fun NuvioLegacyPrimaryPlayButton(
         ),
         border = androidx.tv.material3.ClickableSurfaceDefaults.border(
             border = androidx.tv.material3.Border(
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f)),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.28f)),
                 shape = RoundedCornerShape(999.dp)
             ),
             focusedBorder = androidx.tv.material3.Border(
@@ -350,7 +468,7 @@ fun NuvioLegacyPrimaryPlayButton(
         Row(
             modifier = Modifier
                 .height(44.dp)
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = 22.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(9.dp)
         ) {
@@ -374,8 +492,8 @@ fun NuvioLegacyPrimaryPlayButton(
 }
 
 /**
- * Apple TV+ Dock Action Button:
- * Sleek circular glass icon button that smoothly expands into a pill showing [Icon + Label] when focused.
+ * Apple TV+ Frosted Glass Dock Action Button:
+ * Sleek circular frosted glass droplet that smoothly expands into a pill showing [Icon + Label] when focused.
  */
 @Composable
 fun NuvioLegacyCircleIconButton(
@@ -427,18 +545,18 @@ fun NuvioLegacyCircleIconButton(
             shape = RoundedCornerShape(999.dp)
         ),
         colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
-            containerColor = Color.White.copy(alpha = 0.08f),
+            containerColor = Color.White.copy(alpha = 0.11f),
             focusedContainerColor = accentColor,
-            contentColor = Color.White.copy(alpha = 0.92f),
+            contentColor = Color.White.copy(alpha = 0.94f),
             focusedContentColor = focusedContentColor
         ),
         border = androidx.tv.material3.ClickableSurfaceDefaults.border(
             border = androidx.tv.material3.Border(
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f)),
                 shape = RoundedCornerShape(999.dp)
             ),
             focusedBorder = androidx.tv.material3.Border(
-                border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.92f)),
+                border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.95f)),
                 shape = RoundedCornerShape(999.dp)
             )
         ),
@@ -456,14 +574,14 @@ fun NuvioLegacyCircleIconButton(
                 Icon(
                     painter = iconPainter,
                     contentDescription = contentDescription,
-                    tint = if (isFocused) focusedContentColor else Color.White.copy(alpha = 0.92f),
+                    tint = if (isFocused) focusedContentColor else Color.White.copy(alpha = 0.94f),
                     modifier = Modifier.size(20.dp)
                 )
             } else {
                 Icon(
                     imageVector = icon,
                     contentDescription = contentDescription,
-                    tint = if (isFocused) focusedContentColor else Color.White.copy(alpha = 0.92f),
+                    tint = if (isFocused) focusedContentColor else Color.White.copy(alpha = 0.94f),
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -484,7 +602,7 @@ fun NuvioLegacyCircleIconButton(
 }
 
 /**
- * Apple TV+ Split-Tone Timestamp (`0:14:22   -1:42:10 · 1:56:32`)
+ * Apple TV+ Split-Tone Timestamp (`0:14:22   -1:42:10 / 1:56:32`)
  */
 @Composable
 fun NuvioLegacySplitTimeText(
@@ -523,13 +641,26 @@ fun NuvioLegacySplitTimeText(
 }
 
 /**
- * Apple TV+ Frosted Glass Format & Audio Pills (`4K UHD`, `Dolby Vision`, `HDR10+`, `Dolby Atmos`, `REMUX`, `HEVC`, size).
+ * Items 6 & 11: Formatted Stream Badges in the Media Player matching screenshot `1000041799.jpg`
+ * (`[1080p] [🌐 WebDL] [SDR] [H.264] [DD Digital+] [5.1]`).
+ * Uses the user's configured `StreamBadgeChips` (`uiState.currentStreamBadges`) as the primary badge strip,
+ * and falls back to monochrome white-bordered `20.dp` chips matching `1000041799.jpg` if no custom badge rules matched yet.
  */
 @Composable
 fun NuvioLegacyInlineStreamBadges(
     uiState: PlayerUiState,
     modifier: Modifier = Modifier
 ) {
+    if (uiState.currentStreamBadges.isNotEmpty()) {
+        StreamBadgeChips(
+            badges = uiState.currentStreamBadges,
+            fileSizeBytes = uiState.streamInfoData?.fileSize,
+            showFileSizeBadge = uiState.showFileSizeBadges,
+            modifier = modifier
+        )
+        return
+    }
+
     val rawText = remember(
         uiState.currentStreamName,
         uiState.currentStreamTitle,
@@ -551,95 +682,85 @@ fun NuvioLegacyInlineStreamBadges(
             selected?.name,
             selected?.codec,
             selected?.language,
-            selected?.channelCount?.let { if (it >= 8) "7.1" else if (it >= 6) "5.1" else null }
+            selected?.channelCount?.let { if (it >= 8) "7.1" else if (it >= 6) "5.1" else if (it == 2) "2.0" else null }
         ).joinToString(" ").lowercase(Locale.US)
     }
     val combinedAudio = "$lower $selectedAudioText"
     val vWidth = uiState.streamInfoData?.videoWidth ?: 0
 
-    val chips = remember(lower, combinedAudio, vWidth) {
+    val fallbackChips = remember(lower, combinedAudio, vWidth) {
         buildList {
             // 1. Resolution
             when {
-                vWidth >= 3800 || lower.contains("2160p") || lower.contains("4k") || lower.contains("uhd") ->
-                    add("4K UHD")
-                vWidth >= 1900 || lower.contains("1080p") || lower.contains("fhd") ->
-                    add("1080p HD")
-                vWidth >= 1200 || lower.contains("720p") || lower.contains("hd") ->
-                    add("720p HD")
+                vWidth >= 3800 || lower.contains("2160p") || lower.contains("4k") || lower.contains("uhd") -> add("4K")
+                vWidth >= 1900 || lower.contains("1080p") || lower.contains("fhd") -> add("1080p")
+                vWidth >= 1200 || lower.contains("720p") || lower.contains("hd") -> add("720p")
             }
-            // 2. Dynamic Range (Dolby Vision / HDR10+ / HDR10)
-            if (lower.contains("dolby vision") || lower.contains("dovi") || Regex("""\bdv\b""").containsMatchIn(lower)) {
-                add("Dolby Vision")
-            }
-            if (lower.contains("hdr10+") || lower.contains("hdr10plus")) {
-                add("HDR10+")
-            } else if (lower.contains("hdr10") || Regex("""\bhdr\b""").containsMatchIn(lower)) {
-                add("HDR10")
-            }
-            // 3. Audio Format (Dolby Atmos / TrueHD / DTS-HD / 7.1 / 5.1)
+            // 2. Source type (WebDL / BluRay / Remux)
             when {
-                combinedAudio.contains("atmos") || combinedAudio.contains("eac3-joc") -> add("Dolby Atmos")
-                combinedAudio.contains("truehd") || combinedAudio.contains("true-hd") -> add("Dolby TrueHD")
-                combinedAudio.contains("dts-hd") || combinedAudio.contains("dts:x") || combinedAudio.contains("dtsx") -> add("DTS-HD MA")
+                lower.contains("remux") -> add("Remux")
+                lower.contains("web-dl") || lower.contains("webdl") || lower.contains("web") -> add("WebDL")
+                lower.contains("bluray") || lower.contains("blu-ray") || lower.contains("bdrip") -> add("BluRay")
+            }
+            // 3. Dynamic Range (Dolby Vision / HDR10+ / HDR10 / SDR)
+            when {
+                lower.contains("dolby vision") || lower.contains("dovi") || Regex("""\bdv\b""").containsMatchIn(lower) -> add("Dolby Vision")
+                lower.contains("hdr10+") || lower.contains("hdr10plus") -> add("HDR10+")
+                lower.contains("hdr10") || Regex("""\bhdr\b""").containsMatchIn(lower) -> add("HDR")
+                isNotEmpty() -> add("SDR")
+            }
+            // 4. Video Codec (HEVC / H.264 / AV1)
+            when {
+                lower.contains("hevc") || lower.contains("x265") || lower.contains("h265") || lower.contains("h.265") -> add("H.265")
+                lower.contains("av1") -> add("AV1")
+                lower.contains("x264") || lower.contains("h264") || lower.contains("h.264") || lower.contains("avc") -> add("H.264")
+            }
+            // 5. Audio Format (Atmos / TrueHD / Digital+ / DTS-HD)
+            when {
+                combinedAudio.contains("atmos") -> add("Dolby Atmos")
+                combinedAudio.contains("truehd") || combinedAudio.contains("true-hd") -> add("TrueHD")
+                combinedAudio.contains("eac3") || combinedAudio.contains("ddp") || combinedAudio.contains("dd+") || combinedAudio.contains("digital+") -> add("Digital+")
+                combinedAudio.contains("ac3") || combinedAudio.contains("dd5") -> add("Dolby Digital")
+                combinedAudio.contains("dts-hd") || combinedAudio.contains("dts:x") || combinedAudio.contains("dtsx") -> add("DTS-HD")
                 Regex("""\bdts\b""").containsMatchIn(combinedAudio) -> add("DTS")
             }
-            if (combinedAudio.contains("7.1")) {
-                add("7.1")
-            } else if (combinedAudio.contains("5.1")) {
-                add("5.1")
-            }
-            // 4. Source / Codec
-            if (lower.contains("remux")) {
-                add("REMUX")
-            } else if (lower.contains("hevc") || lower.contains("x265") || lower.contains("h265") || lower.contains("h.265")) {
-                add("HEVC")
-            } else if (lower.contains("av1")) {
-                add("AV1")
-            }
-            // 5. File Size
-            Regex("""(\d+(?:\.\d+)?\s?(?:GB|MB))""", RegexOption.IGNORE_CASE).find(rawText)?.value?.let { sizeStr ->
-                add(sizeStr.uppercase(Locale.US))
+            // 6. Channels
+            when {
+                combinedAudio.contains("7.1") -> add("7.1")
+                combinedAudio.contains("5.1") -> add("5.1")
+                combinedAudio.contains("2.0") -> add("2.0")
             }
         }
     }
 
-    if (chips.isEmpty() && uiState.currentStreamBadges.isEmpty()) return
+    if (fallbackChips.isEmpty()) return
 
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        chips.forEach { label ->
-            val isHighlight = label.contains("Dolby") || label.contains("4K") || label.contains("HDR")
+        fallbackChips.forEach { label ->
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(7.dp))
-                    .background(
-                        if (isHighlight) Color.White.copy(alpha = 0.16f)
-                        else Color(0xFF141720).copy(alpha = 0.78f)
-                    )
-                    .border(
-                        width = 0.75.dp,
-                        color = if (isHighlight) Color.White.copy(alpha = 0.38f) else Color.White.copy(alpha = 0.18f),
-                        shape = RoundedCornerShape(7.dp)
-                    )
-                    .padding(horizontal = 9.dp, vertical = 3.dp)
+                    .height(20.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFF0A0C0C))
+                    .border(1.2.dp, Color.White.copy(alpha = 0.90f), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 7.dp),
+                contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 0.3.sp
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.2.sp
                     ),
-                    color = Color.White.copy(alpha = 0.95f)
+                    color = Color.White,
+                    maxLines = 1
                 )
             }
-        }
-        if (chips.isEmpty() && uiState.currentStreamBadges.isNotEmpty()) {
-            StreamBadgeChips(badges = uiState.currentStreamBadges)
         }
     }
 }

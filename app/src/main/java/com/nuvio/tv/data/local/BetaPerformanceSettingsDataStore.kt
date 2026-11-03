@@ -75,7 +75,7 @@ data class BetaPerformanceSettings(
     /** Player shows only play, next episode, subtitles, audio and quality; the rest sit behind the arrow. */
     val minimalPlayer: Boolean = true,
     /** Play the short logo intro while a stream loads; playback waits for it to finish. */
-    val playbackIntro: Boolean = true,
+    val playbackIntro: Boolean = false,
     /** How long the intro runs, in seconds: one of [INTRO_LENGTHS]. */
     val introLengthSeconds: Int = 5,
     /** While scrubbing, show a picture of the spot above the progress bar (MKV and MP4 streams). */

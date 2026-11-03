@@ -74,7 +74,9 @@ private enum class ClassicMediaFilter { ALL, MOVIES, SERIES }
 
 private sealed interface LibraryOverlay {
     data class Sort(val anchor: Rect) : LibraryOverlay
-    data class BinOptions(val bin: Bin, val anchor: Rect) : LibraryOverlay
+    data class GenreFilter(val anchor: Rect) : LibraryOverlay
+    data class YearFilter(val anchor: Rect) : LibraryOverlay
+    data class BinOptions(val bin: Bin, val anchor: Rect)
     data class TitleOptions(val bin: Bin, val title: BinTitle, val anchor: Rect) : LibraryOverlay
     data object Create : LibraryOverlay
     data class Rename(val bin: Bin) : LibraryOverlay
@@ -106,9 +108,13 @@ fun LibraryScreen(
     val cloudState by cloudViewModel.uiState.collectAsState()
     var tab by rememberSaveable { mutableStateOf(LibraryTab.Classic) }
     var classicFilter by rememberSaveable { mutableStateOf(ClassicMediaFilter.ALL) }
+    var selectedGenre by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedYear by rememberSaveable { mutableStateOf<String?>(null) }
     var overlay by remember { mutableStateOf<LibraryOverlay?>(null) }
     var rootOffset by remember { mutableStateOf(Offset.Zero) }
     var sortBounds by remember { mutableStateOf(Rect.Zero) }
+    var genreBounds by remember { mutableStateOf(Rect.Zero) }
+    var yearBounds by remember { mutableStateOf(Rect.Zero) }
     var lastFocused by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingFocus by remember { mutableStateOf<String?>(null) }
     var refocusAfterSwap by remember { mutableStateOf<String?>(null) }
@@ -118,8 +124,55 @@ fun LibraryScreen(
     val titlesGrid = remember(state.openBin?.id) { LazyGridState() }
     val contentFocus = LocalContentFocusRequester.current
 
-    val filteredClassicTitles = remember(state.allTitles, classicFilter) {
-        when (classicFilter) {
+    val sourcePoolForFilters = remember(tab, state.allTitles, state.openTitles, state.openBin) {
+        if (tab == LibraryTab.Bins && state.openBin != null) state.openTitles else state.allTitles
+    }
+
+    val availableGenres = remember(sourcePoolForFilters) {
+        sourcePoolForFilters
+            .flatMap { it.entry.genres }
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .sorted()
+    }
+
+    val availableYears = remember(sourcePoolForFilters) {
+        val yearRegex = Regex("\\b(19\\d{2}|20\\d{2})\\b")
+        val exactYears = sourcePoolForFilters
+            .mapNotNull { title -> yearRegex.find(title.entry.releaseInfo.orEmpty())?.value }
+            .distinct()
+            .sortedDescending()
+        val decades = listOf("2020s", "2010s", "2000s", "1990s", "Classic (<1990)")
+        (decades + exactYears).distinct()
+    }
+
+    fun matchesGenreAndYear(title: BinTitle): Boolean {
+        val g = selectedGenre
+        if (g != null && title.entry.genres.none { it.trim().equals(g, ignoreCase = true) }) {
+            return false
+        }
+        val y = selectedYear
+        if (y != null) {
+            val yearInt = Regex("\\b(19\\d{2}|20\\d{2})\\b")
+                .find(title.entry.releaseInfo.orEmpty())
+                ?.value
+                ?.toIntOrNull() ?: return false
+            val matchesY = when (y) {
+                "2020s" -> yearInt in 2020..2029
+                "2010s" -> yearInt in 2010..2019
+                "2000s" -> yearInt in 2000..2009
+                "1990s" -> yearInt in 1990..1999
+                "Classic (<1990)" -> yearInt < 1990
+                else -> yearInt.toString() == y
+            }
+            if (!matchesY) return false
+        }
+        return true
+    }
+
+    val filteredClassicTitles = remember(state.allTitles, classicFilter, selectedGenre, selectedYear) {
+        val mediaFiltered = when (classicFilter) {
             ClassicMediaFilter.ALL -> state.allTitles
             ClassicMediaFilter.MOVIES -> state.allTitles.filter {
                 !it.entry.type.equals("series", true) && !it.entry.type.equals("tv", true)
@@ -128,6 +181,11 @@ fun LibraryScreen(
                 it.entry.type.equals("series", true) || it.entry.type.equals("tv", true)
             }
         }
+        mediaFiltered.filter(::matchesGenreAndYear)
+    }
+
+    val filteredOpenBinTitles = remember(state.openTitles, selectedGenre, selectedYear) {
+        state.openTitles.filter(::matchesGenreAndYear)
     }
 
     fun local(rect: Rect): Rect = rect.translate(-rootOffset)
@@ -194,6 +252,12 @@ fun LibraryScreen(
             tab = tab,
             classicFilter = classicFilter,
             onClassicFilter = { classicFilter = it },
+            selectedGenre = selectedGenre,
+            selectedYear = selectedYear,
+            onClearFilters = {
+                selectedGenre = null
+                selectedYear = null
+            },
             state = state,
             sortLabel = sortLabel,
             focus = focus,
@@ -214,6 +278,10 @@ fun LibraryScreen(
             },
             onSortBounds = { sortBounds = it },
             onSort = { overlay = LibraryOverlay.Sort(local(sortBounds)) },
+            onGenreBounds = { genreBounds = it },
+            onGenre = { overlay = LibraryOverlay.GenreFilter(local(genreBounds)) },
+            onYearBounds = { yearBounds = it },
+            onYear = { overlay = LibraryOverlay.YearFilter(local(yearBounds)) },
             onCustomOrder = { binsViewModel.toggleReorder() },
             onCreate = { overlay = LibraryOverlay.Create },
             onRefresh = cloudViewModel::refresh,
@@ -310,7 +378,7 @@ fun LibraryScreen(
                     val bin = state.openBin!!
                     BinTitlesGrid(
                         bin = bin,
-                        state = state,
+                        state = state.copy(openTitles = filteredOpenBinTitles),
                         gridState = titlesGrid,
                         header = header,
                         focus = focus,
@@ -372,6 +440,40 @@ fun LibraryScreen(
                 openedByHold = false,
                 onDismiss = { dismissOverlay("pill:sort") }
             )
+            is LibraryOverlay.GenreFilter -> {
+                val genreOptions = listOf<String?>(null) + availableGenres
+                BinPillMenu(
+                    anchor = current.anchor,
+                    title = "Filter by Genre",
+                    items = genreOptions.map { g ->
+                        val label = g ?: "All Genres"
+                        BinMenuItem(label, checked = g == selectedGenre) {
+                            selectedGenre = g
+                            dismissOverlay("pill:genre")
+                        }
+                    },
+                    initialIndex = genreOptions.indexOf(selectedGenre).coerceAtLeast(0),
+                    openedByHold = false,
+                    onDismiss = { dismissOverlay("pill:genre") }
+                )
+            }
+            is LibraryOverlay.YearFilter -> {
+                val yearOptions = listOf<String?>(null) + availableYears
+                BinPillMenu(
+                    anchor = current.anchor,
+                    title = "Filter by Year",
+                    items = yearOptions.map { y ->
+                        val label = y ?: "All Years"
+                        BinMenuItem(label, checked = y == selectedYear) {
+                            selectedYear = y
+                            dismissOverlay("pill:year")
+                        }
+                    },
+                    initialIndex = yearOptions.indexOf(selectedYear).coerceAtLeast(0),
+                    openedByHold = false,
+                    onDismiss = { dismissOverlay("pill:year") }
+                )
+            }
             is LibraryOverlay.BinOptions -> {
                 val bin = current.bin
                 BinPillMenu(
@@ -452,6 +554,9 @@ private fun LibraryHeader(
     tab: LibraryTab,
     classicFilter: ClassicMediaFilter,
     onClassicFilter: (ClassicMediaFilter) -> Unit,
+    selectedGenre: String?,
+    selectedYear: String?,
+    onClearFilters: () -> Unit,
     state: BinsUiState,
     sortLabel: String,
     focus: FocusKeys,
@@ -459,6 +564,10 @@ private fun LibraryHeader(
     onTab: (LibraryTab) -> Unit,
     onSortBounds: (Rect) -> Unit,
     onSort: () -> Unit,
+    onGenreBounds: (Rect) -> Unit,
+    onGenre: () -> Unit,
+    onYearBounds: (Rect) -> Unit,
+    onYear: () -> Unit,
     onCustomOrder: () -> Unit,
     onCreate: () -> Unit,
     onRefresh: () -> Unit,
@@ -494,8 +603,17 @@ private fun LibraryHeader(
                     "Series", selected = classicFilter == ClassicMediaFilter.SERIES, requester = focus["pill:filter_series"],
                     onClick = { onClassicFilter(ClassicMediaFilter.SERIES) }
                 )
+                BinsSortPill("Genre: ${selectedGenre ?: "All"}", focus["pill:genre"], onClick = onGenre, onBounds = onGenreBounds)
+                BinsSortPill("Year: ${selectedYear ?: "All"}", focus["pill:year"], onClick = onYear, onBounds = onYearBounds)
                 BinsSortPill(sortLabel, focus["pill:sort"], onClick = onSort, onBounds = onSortBounds)
+                if (selectedGenre != null || selectedYear != null) {
+                    BinsTextPill("Reset", selected = false, requester = focus["pill:reset_filters"], onClick = onClearFilters, modifier = endOfRow)
+                }
             } else if (tab == LibraryTab.Bins) {
+                if (state.openBin != null) {
+                    BinsSortPill("Genre: ${selectedGenre ?: "All"}", focus["pill:genre"], onClick = onGenre, onBounds = onGenreBounds)
+                    BinsSortPill("Year: ${selectedYear ?: "All"}", focus["pill:year"], onClick = onYear, onBounds = onYearBounds)
+                }
                 BinsSortPill(sortLabel, focus["pill:sort"], onClick = onSort, onBounds = onSortBounds)
                 BinsIconPill(
                     icon = CustomOrderIcon,

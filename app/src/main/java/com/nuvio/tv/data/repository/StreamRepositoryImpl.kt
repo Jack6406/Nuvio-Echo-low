@@ -206,13 +206,14 @@ class StreamRepositoryImpl @Inject constructor(
                                         val namedStreams = streamsResult.data.map {
                                             it.copy(addonName = addon.displayName, addonLogo = addon.logo)
                                         }
-                                        resultChannel.send(
-                                            AddonStreams(
-                                                addonName = addon.displayName,
-                                                addonLogo = addon.logo,
-                                                streams = namedStreams
-                                            )
+                                        val rawGroup = AddonStreams(
+                                            addonName = addon.displayName,
+                                            addonLogo = addon.logo,
+                                            streams = namedStreams
                                         )
+                                        val checkingGroup = localDebridAvailabilityService.markChecking(listOf(rawGroup)).firstOrNull() ?: rawGroup
+                                        val checkedGroup = localDebridAvailabilityService.annotateCachedAvailability(listOf(checkingGroup)).firstOrNull() ?: checkingGroup
+                                        resultChannel.send(checkedGroup)
                                     } else {
                                         // Stream endpoint returned empty - try inline
                                         // streams from meta response as fallback.
@@ -291,10 +292,8 @@ class StreamRepositoryImpl @Inject constructor(
                     }
                 }
 
-                // Emit results as they arrive
-                for (result in resultChannel) {
-                    val checkingResult = localDebridAvailabilityService.markChecking(listOf(result)).firstOrNull() ?: result
-                    val checkedResult = localDebridAvailabilityService.annotateCachedAvailability(listOf(checkingResult)).firstOrNull() ?: checkingResult
+                // Emit results immediately as they arrive (availability already checked in parallel)
+                for (checkedResult in resultChannel) {
                     mergePresentedResult(accumulatedResults, checkedResult, debridSettings)
                     emit(NetworkResult.Success(accumulatedResults.toList()))
                     Log.d(TAG, "Emitted ${accumulatedResults.size} addon(s), latest: ${checkedResult.addonName} with ${checkedResult.streams.size} streams")

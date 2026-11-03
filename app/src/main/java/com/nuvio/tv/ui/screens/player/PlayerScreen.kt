@@ -2441,27 +2441,12 @@ private fun PlayerControlsOverlay(
                 .align(Alignment.BottomCenter)
                 .padding(horizontal = NuvioTheme.spacing.xxl, vertical = NuvioTheme.spacing.xl)
         ) {
-            val showVia = !uiState.isPlaying && !uiState.currentStreamName.isNullOrBlank()
+            // Item 5: No addon / via text clutter above the progress bar — only clean time & quality on the right
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.Bottom
             ) {
-                Box(modifier = Modifier.weight(1f)) {
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = showVia,
-                        enter = fadeIn(animationSpec = tween(durationMillis = 200)),
-                        exit = fadeOut(animationSpec = tween(durationMillis = NuvioMotion.tokens.durations.fast))
-                    ) {
-                        Text(
-                            text = stringResource(R.string.player_via, (uiState.currentStreamName ?: "").replace("\n", " · ")),
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
-                            color = Color.White.copy(alpha = 0.68f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -2508,10 +2493,8 @@ private fun PlayerControlsOverlay(
             ) {
                 Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(Color(0xFF10131C).copy(alpha = 0.84f))
-                        .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(999.dp))
-                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                        .appleTvFrostedGlass(RoundedCornerShape(999.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -2581,16 +2564,24 @@ private fun PlayerControlsOverlay(
                         onFocused = onResetHideTimer
                     )
 
-                    // 6. Episodes / More Controls (film strip icon)
-                    NuvioLegacyCircleIconButton(
-                        icon = androidx.compose.material.icons.Icons.Default.Theaters,
-                        contentDescription = if (hasEpisodeContext) stringResource(R.string.cd_episodes) else stringResource(R.string.cd_more_actions),
-                        accentColor = playerAccentColor,
-                        onClick = if (hasEpisodeContext) onShowEpisodesPanel else onToggleMoreActions,
-                        upFocusRequester = progressUpTarget,
-                        onDownKey = onHideControls,
-                        onFocused = onResetHideTimer
-                    )
+                    // 6. Episodes selector (shown only when playing TV series or anime; omitted on movies)
+                    val isSeriesOrAnime = hasEpisodeContext ||
+                        uiState.episodesAll.isNotEmpty() ||
+                        uiState.contentType.equals("series", ignoreCase = true) ||
+                        uiState.contentType.equals("tv", ignoreCase = true) ||
+                        uiState.contentType.equals("anime", ignoreCase = true)
+                    if (isSeriesOrAnime) {
+                        NuvioLegacyCircleIconButton(
+                            icon = androidx.compose.material.icons.Icons.Default.Theaters,
+                            iconPainter = customEpisodesPainter,
+                            contentDescription = stringResource(R.string.cd_episodes),
+                            accentColor = playerAccentColor,
+                            onClick = onShowEpisodesPanel,
+                            upFocusRequester = progressUpTarget,
+                            onDownKey = onHideControls,
+                            onFocused = onResetHideTimer
+                        )
+                    }
 
                     if (showNextEpisodeButton) {
                         NuvioLegacyCircleIconButton(

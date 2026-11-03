@@ -527,6 +527,11 @@ internal fun NewLookHomeContent(
     var focusedCard by remember { mutableStateOf<Pair<String, String>?>(null) }
     var cwOptions by remember { mutableStateOf<ContinueWatchingItem?>(null) }
     var cwPosterPickerItem by remember { mutableStateOf<ContinueWatchingItem?>(null) }
+    var showControlCenter by remember { mutableStateOf(false) }
+    var showViewingStats by remember { mutableStateOf(false) }
+    var clockIslandFocused by remember { mutableStateOf(false) }
+    var clockStatusNotice by remember { mutableStateOf<String?>(null) }
+    val clockIslandFocus = remember { FocusRequester() }
     /**
      * The poster that has opened out (row key to item key): focused for the expand delay. One state for the card's
      * opening and its trailer, so the trailer is asked for only once a poster opens, not for each one passed.
@@ -897,7 +902,11 @@ internal fun NewLookHomeContent(
             .focusGroup()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                if (chrome?.topBarFocused == true || cwOptions != null) return@onPreviewKeyEvent false
+                if (chrome?.topBarFocused == true || cwOptions != null || showControlCenter || showViewingStats) return@onPreviewKeyEvent false
+                if (event.key == Key.ChannelUp || event.key == Key.Menu) {
+                    showControlCenter = true
+                    return@onPreviewKeyEvent true
+                }
                 if (heroHasFocus) {
                     when (event.key) {
                         Key.DirectionLeft -> {
@@ -919,7 +928,11 @@ internal fun NewLookHomeContent(
                             true
                         }
                         Key.DirectionUp -> {
-                            if (menuOnTop) chrome?.focusTopBar()
+                            if (menuOnTop && heroButton == 0) {
+                                chrome?.focusTopBar()
+                            } else if (!tryFocus(clockIslandFocus)) {
+                                showControlCenter = true
+                            }
                             true
                         }
                         else -> false
@@ -1108,6 +1121,61 @@ internal fun NewLookHomeContent(
                 }
             }
         }
+
+        // Top-right floating Clock Dynamic Island pill (Item 8)
+        val islandVisible = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 260
+        if (islandVisible || clockIslandFocused) {
+            HomeTopRightClockIsland(
+                statusNotice = clockStatusNotice,
+                continueWatchingCount = uiState.continueWatchingItems.size,
+                focusRequester = clockIslandFocus,
+                onFocusedChanged = { focused ->
+                    clockIslandFocused = focused
+                    if (focused) {
+                        heroHasFocus = false
+                    }
+                },
+                onOpenControlCenter = { showControlCenter = true },
+                onOpenStats = { showViewingStats = true },
+                onDownToHero = { focusHero(heroButton) },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 20.dp, end = 28.dp)
+            )
+        }
+    }
+
+    if (showControlCenter) {
+        QuickControlCenterDialog(
+            settings = settings,
+            onDismiss = {
+                showControlCenter = false
+                focusHero(heroButton)
+            },
+            onOpenViewingStats = {
+                showControlCenter = false
+                showViewingStats = true
+            },
+            onStatusBannerChanged = { notice -> clockStatusNotice = notice },
+            onRefreshHome = {
+                source.refreshBuiltIns()
+                source.refreshSmartHighlights()
+            }
+        )
+    }
+
+    if (showViewingStats) {
+        val allCatalogMeta = remember(rows, featuredSource) {
+            (featuredSource + rows.flatMap { r -> r.items.mapNotNull { it.metaPreview } }).distinctBy { it.id }
+        }
+        ProfileViewingStatsDialog(
+            catalogItemsForGenres = allCatalogMeta,
+            onDismiss = {
+                showViewingStats = false
+                focusHero(heroButton)
+            },
+            onNavigateToDetail = onNavigateToDetail
+        )
     }
 
     smartOptions?.let { (row, item) ->

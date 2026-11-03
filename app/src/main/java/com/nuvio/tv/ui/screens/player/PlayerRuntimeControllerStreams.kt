@@ -41,6 +41,61 @@ private const val CLOUD_LIBRARY_AUTO_NEXT_TIMEOUT_MS = 65_000L
  * Schedules incremental badge matching for source streams in the background.
  * Only processes addon groups not yet badged, emits UI update every 5 streams.
  */
+internal fun PlayerRuntimeController.refreshCurrentStreamBadges() {
+    scope.launch(kotlinx.coroutines.Dispatchers.Default) {
+        val state = _uiState.value
+        val matchedFromSources = state.sourceAllStreams.firstOrNull { s ->
+            (!state.currentStreamUrl.isNullOrBlank() && s.url == state.currentStreamUrl) ||
+                (!state.currentStreamInfoHash.isNullOrBlank() && s.infoHash.equals(state.currentStreamInfoHash, ignoreCase = true)) ||
+                (!state.currentStreamName.isNullOrBlank() && s.name == state.currentStreamName && s.addonName == state.currentStreamAddonName)
+        }
+        val syntheticStream = matchedFromSources ?: Stream(
+            name = state.currentStreamName ?: streamName,
+            title = state.currentStreamTitle ?: currentStreamTitle ?: state.streamInfoData?.filename ?: currentFilename,
+            description = listOfNotNull(
+                state.currentStreamDescription ?: currentStreamDescription,
+                state.streamInfoData?.filename ?: currentFilename,
+                state.streamInfoData?.videoCodec,
+                state.streamInfoData?.audioCodec,
+                state.streamInfoData?.videoWidth?.takeIf { it > 0 }?.let { w ->
+                    when {
+                        w >= 3800 -> "2160p 4K"
+                        w >= 1900 -> "1080p"
+                        w >= 1200 -> "720p"
+                        else -> null
+                    }
+                }
+            ).joinToString(" ").ifBlank { null },
+            url = state.currentStreamUrl.takeIf { !it.isNullOrBlank() } ?: currentStreamUrl.ifBlank { null },
+            ytId = null,
+            infoHash = state.currentStreamInfoHash ?: navigationArgs.infoHash,
+            fileIdx = state.currentStreamFileIdx ?: navigationArgs.fileIdx,
+            externalUrl = null,
+            behaviorHints = com.nuvio.tv.domain.model.StreamBehaviorHints(
+                notWebReady = null,
+                bingeGroup = null,
+                countryWhitelist = null,
+                proxyHeaders = null,
+                videoHash = null,
+                videoSize = state.streamInfoData?.fileSize,
+                filename = state.streamInfoData?.filename ?: currentFilename
+            ),
+            addonName = state.currentStreamAddonName ?: navigationArgs.addonName ?: "",
+            addonLogo = null
+        )
+        val group = AddonStreams(
+            addonName = syntheticStream.addonName,
+            addonLogo = syntheticStream.addonLogo,
+            streams = listOf(syntheticStream)
+        )
+        val badged = runCatching { streamBadgePresentation.apply(listOf(group)) }.getOrNull()
+        val badges = badged?.firstOrNull()?.streams?.firstOrNull()?.badges.orEmpty()
+        if (badges.isNotEmpty()) {
+            _uiState.update { it.copy(currentStreamBadges = badges) }
+        }
+    }
+}
+
 internal fun PlayerRuntimeController.scheduleSourceBadgeApplication() {
     val state = _uiState.value
     val newAddons = state.sourceAvailableAddons.filter { it !in sourceBadgedAddonNames }
@@ -78,6 +133,7 @@ internal fun PlayerRuntimeController.scheduleSourceBadgeApplication() {
             val coveredAddons = chunk.map { it.addonName }.toSet()
             sourceBadgedAddonNames = sourceBadgedAddonNames + coveredAddons
         }
+        refreshCurrentStreamBadges()
     }
 }
 
@@ -921,6 +977,9 @@ internal fun PlayerRuntimeController.switchToSourceStream(
             currentStreamInfoHash = stream.infoHash ?: stream.clientResolve?.infoHash,
             currentStreamFileIdx = stream.clientResolve?.fileIdx,
             currentStreamAddonName = stream.addonName,
+            currentStreamTitle = stream.title,
+            currentStreamDescription = stream.description,
+            currentStreamBadges = stream.badges,
             audioTracks = emptyList(),
             subtitleTracks = emptyList(),
             selectedAudioTrackIndex = -1,
@@ -1034,6 +1093,9 @@ private fun PlayerRuntimeController.switchToTorrentSourceStream(
             currentStreamInfoHash = stream.infoHash ?: stream.clientResolve?.infoHash,
             currentStreamFileIdx = stream.clientResolve?.fileIdx,
             currentStreamAddonName = stream.addonName,
+            currentStreamTitle = stream.title,
+            currentStreamDescription = stream.description,
+            currentStreamBadges = stream.badges,
             audioTracks = emptyList(),
             subtitleTracks = emptyList(),
             selectedAudioTrackIndex = -1,
@@ -1615,6 +1677,9 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(
             currentStreamInfoHash = stream.infoHash ?: stream.clientResolve?.infoHash,
             currentStreamFileIdx = stream.clientResolve?.fileIdx,
             currentStreamAddonName = stream.addonName,
+            currentStreamTitle = stream.title,
+            currentStreamDescription = stream.description,
+            currentStreamBadges = stream.badges,
             audioTracks = emptyList(),
             subtitleTracks = emptyList(),
             selectedAudioTrackIndex = -1,
@@ -1729,6 +1794,9 @@ private fun PlayerRuntimeController.switchToEpisodeStreamCommon(
             currentStreamInfoHash = stream.infoHash ?: stream.clientResolve?.infoHash,
             currentStreamFileIdx = stream.clientResolve?.fileIdx,
             currentStreamAddonName = stream.addonName,
+            currentStreamTitle = stream.title,
+            currentStreamDescription = stream.description,
+            currentStreamBadges = stream.badges,
             audioTracks = emptyList(),
             subtitleTracks = emptyList(),
             selectedAudioTrackIndex = -1,
@@ -1865,6 +1933,15 @@ internal fun PlayerRuntimeController.prepareNextEpisode() {
         val prepared = try {
             val playerSettings = playerSettingsDataStore.playerSettings.first()
             if (nextEpisodeNeedsPicker(playerSettings)) {
+                runCatching {
+                    streamRepository.getStreamsFromAllAddons(
+                        type = type,
+                        videoId = nextVideo.id,
+                        season = nextVideo.season,
+                        episode = nextVideo.episode,
+                        speculative = true
+                    ).firstOrNull()
+                }
                 PreparedNextEpisode(nextVideo.id, pick = null, pickerOnly = true)
             } else {
                 Log.d(PlayerRuntimeController.TAG, "Finding a source for the next episode: S${nextVideo.season}E${nextVideo.episode}")

@@ -12,6 +12,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -35,6 +36,10 @@ class CustomBackdropStore @Inject constructor(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    init {
+        activeInstance = this
+    }
+
     val overridesFlow: Flow<Map<String, String>> = profileManager.activeProfileId
         .flatMapLatest { profileId ->
             factory.get(profileId, FEATURE).data.map(::readOverrides)
@@ -42,6 +47,12 @@ class CustomBackdropStore @Inject constructor(
         .onEach { map ->
             memoryMirror.putAll(map)
             _reactiveMirror.value = HashMap(memoryMirror)
+            appContextRef?.let { ctx ->
+                val prefs = ctx.getSharedPreferences(CW_PREFS_NAME, Context.MODE_PRIVATE)
+                val editor = prefs.edit()
+                map.forEach { (k, v) -> editor.putString(k, v) }
+                editor.apply()
+            }
         }
 
     val overrides: StateFlow<Map<String, String>> = overridesFlow
@@ -83,15 +94,21 @@ class CustomBackdropStore @Inject constructor(
     }
 
     companion object {
-        private const val FEATURE = "custom_backdrops"
+        const val FEATURE = "custom_backdrops"
         private const val KEY_PREFIX = "backdrop:"
         private const val CW_PREFS_NAME = "nuvio_cw_poster_overrides"
         private val memoryMirror = ConcurrentHashMap<String, String>()
         private val _reactiveMirror = MutableStateFlow<Map<String, String>>(emptyMap())
         val reactiveOverrides: StateFlow<Map<String, String>> = _reactiveMirror.asStateFlow()
+        @Volatile
+        private var activeInstance: CustomBackdropStore? = null
+        @Volatile
+        private var appContextRef: Context? = null
 
         fun initFromPrefs(context: Context) {
-            val prefs = context.applicationContext.getSharedPreferences(CW_PREFS_NAME, Context.MODE_PRIVATE)
+            val appCtx = context.applicationContext
+            appContextRef = appCtx
+            val prefs = appCtx.getSharedPreferences(CW_PREFS_NAME, Context.MODE_PRIVATE)
             for ((k, v) in prefs.all) {
                 val url = (v as? String)?.trim()?.takeIf { it.isNotEmpty() } ?: continue
                 memoryMirror[k] = url
@@ -112,6 +129,11 @@ class CustomBackdropStore @Inject constructor(
                 prefs.edit().putString(cleanId, cleanUrl).apply()
             }
             _reactiveMirror.value = HashMap(memoryMirror)
+            activeInstance?.let { store ->
+                store.scope.launch {
+                    runCatching { store.setBackdrop(cleanId, cleanUrl) }
+                }
+            }
         }
 
         /** Returns the user's custom backdrop for [contentId] if one is set, or [defaultBackdrop]. */

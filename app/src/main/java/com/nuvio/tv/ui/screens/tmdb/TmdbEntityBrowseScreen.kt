@@ -19,8 +19,14 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -98,6 +104,7 @@ fun TmdbEntityBrowseScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val watchedMovieIds by viewModel.watchedMovieIds.collectAsStateWithLifecycle()
     val watchedSeriesIds by viewModel.watchedSeriesIds.collectAsStateWithLifecycle()
+    val watchedDates by viewModel.watchedDates.collectAsStateWithLifecycle()
     val screenMode = when (uiState) {
         TmdbEntityBrowseUiState.Loading -> 0
         is TmdbEntityBrowseUiState.Error -> 1
@@ -137,6 +144,7 @@ fun TmdbEntityBrowseScreen(
                         sourceType = viewModel.sourceType,
                         watchedMovieIds = watchedMovieIds,
                         watchedSeriesIds = watchedSeriesIds,
+                        watchedDates = watchedDates,
                         posterCardCornerRadiusDp = viewModel.posterCardCornerRadiusDp.collectAsStateWithLifecycle().value,
                         onNavigateToDetail = onNavigateToDetail,
                         onItemLongPress = { item ->
@@ -168,6 +176,7 @@ private fun TmdbEntityBrowseContent(
     sourceType: String,
     watchedMovieIds: Set<String>,
     watchedSeriesIds: Set<String>,
+    watchedDates: Map<String, Long> = emptyMap(),
     posterCardCornerRadiusDp: Int = 12,
     onNavigateToDetail: (itemId: String, itemType: String, addonBaseUrl: String?) -> Unit,
     onItemLongPress: (MetaPreview) -> Unit = {},
@@ -260,8 +269,22 @@ private fun TmdbEntityBrowseContent(
                     .fillMaxSize()
                     .padding(top = NuvioTheme.spacing.xl)
             ) {
+                val uniqueEntityItems = remember(data.rails) {
+                    data.rails.flatMap { it.items }.distinctBy { it.id }
+                }
+                val watchedEntityCount = remember(uniqueEntityItems, watchedMovieIds, watchedSeriesIds) {
+                    uniqueEntityItems.count { item ->
+                        if (item.apiType.equals("series", true) || item.apiType.equals("tv", true)) {
+                            item.id in watchedSeriesIds
+                        } else {
+                            item.id in watchedMovieIds
+                        }
+                    }
+                }
                 TmdbEntityHero(
                     data = data,
+                    totalCount = uniqueEntityItems.size,
+                    watchedCount = watchedEntityCount,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = NuvioTheme.spacing.md)
@@ -298,6 +321,7 @@ private fun TmdbEntityBrowseContent(
                                 posterCardStyle = posterCardStyle,
                                 watchedMovieIds = watchedMovieIds,
                                 watchedSeriesIds = watchedSeriesIds,
+                                watchedDates = watchedDates,
                                 restoreItemId = if (isRestoreRail) pendingRestoreItemId else null,
                                 restoreFocusToken = if (isRestoreRail) restoreFocusToken else 0,
                                 onInitialFocusHandled = { initialFocusRequested = true },
@@ -350,6 +374,8 @@ private fun rememberBackgroundRequest(
 @Composable
 private fun TmdbEntityHero(
     data: TmdbEntityBrowseData,
+    totalCount: Int = 0,
+    watchedCount: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val hasLogo = !data.header.logo.isNullOrBlank()
@@ -414,6 +440,41 @@ private fun TmdbEntityHero(
                     modifier = Modifier.fillMaxWidth(0.88f)
                 )
             }
+            if (totalCount > 0) {
+                val accent = NuvioTheme.colors.Secondary
+                val progress = (watchedCount.toFloat() / totalCount.toFloat()).coerceIn(0f, 1f)
+                val pct = (progress * 100f).toInt()
+                Spacer(modifier = Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(accent.copy(alpha = 0.14f))
+                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "You watched $watchedCount of $totalCount ($pct%)",
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                        color = Color.White
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(120.dp)
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Color.White.copy(alpha = 0.18f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(progress)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(accent)
+                        )
+                    }
+                }
+            }
         }
 
         if (hasLogo) {
@@ -466,6 +527,7 @@ private fun EntityRailRow(
     posterCardStyle: PosterCardStyle,
     watchedMovieIds: Set<String>,
     watchedSeriesIds: Set<String>,
+    watchedDates: Map<String, Long> = emptyMap(),
     restoreItemId: String?,
     restoreFocusToken: Int,
     onInitialFocusHandled: () -> Unit,
@@ -594,26 +656,50 @@ private fun EntityRailRow(
                         itemIndex == 0 -> firstItemFocusRequester
                         else -> itemFocusRequesters.getOrPut(itemIndex) { FocusRequester() }
                     }
-                    GridContentCard(
-                        item = item,
-                        onClick = { onItemClick(item) },
-                        onLongPress = { onItemLongPress(item) },
-                        posterCardStyle = posterCardStyle,
-                        showLabel = true,
-                        isWatched = if (rail.mediaType == TmdbEntityMediaType.TV) {
-                            item.id in watchedSeriesIds
-                        } else {
-                            item.id in watchedMovieIds
-                        },
-                        focusRequester = requester,
-                        onFocused = {
-                            onFocusedItemIndexChanged(itemIndex)
-                            if (isRestoreTarget && restoreFocusToken > 0) {
-                                restorePending = false
-                                onRestoreFocusHandled()
+                    val itemWatched = if (rail.mediaType == TmdbEntityMediaType.TV) {
+                        item.id in watchedSeriesIds
+                    } else {
+                        item.id in watchedMovieIds
+                    }
+                    val watchedEpochMs = watchedDates[item.id]
+                    Box {
+                        GridContentCard(
+                            item = item,
+                            onClick = { onItemClick(item) },
+                            onLongPress = { onItemLongPress(item) },
+                            posterCardStyle = posterCardStyle,
+                            showLabel = true,
+                            isWatched = itemWatched,
+                            focusRequester = requester,
+                            onFocused = {
+                                onFocusedItemIndexChanged(itemIndex)
+                                if (isRestoreTarget && restoreFocusToken > 0) {
+                                    restorePending = false
+                                    onRestoreFocusHandled()
+                                }
+                            }
+                        )
+                        if (itemWatched && watchedEpochMs != null && watchedEpochMs > 0L) {
+                            val dateLabel = remember(watchedEpochMs) {
+                                SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(watchedEpochMs))
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(6.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color(0xD910131C))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "✓ $dateLabel",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF7CFF9B)
+                                )
                             }
                         }
-                    )
+                    }
                 }
             }
         }

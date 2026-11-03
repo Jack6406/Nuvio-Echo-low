@@ -297,6 +297,14 @@ internal fun PlayerRuntimeController.recomputeNextEpisode(resetVisibility: Boole
         }
     )
     applyRecomputedNextEpisode(nextInfo, resetVisibility)
+    if (hasAired) {
+        scope.launch {
+            kotlinx.coroutines.delay(12_000L)
+            if (preparedForNextEpisode() == null) {
+                prepareNextEpisode()
+            }
+        }
+    }
 }
 
 private fun PlayerRuntimeController.clearNextEpisodeAndCancelPostPlay() {

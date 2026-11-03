@@ -48,6 +48,8 @@ class TmdbEntityBrowseViewModel @Inject constructor(
     private val _watchedMovieIds = MutableStateFlow<Set<String>>(emptySet())
     val watchedMovieIds: StateFlow<Set<String>> = _watchedMovieIds.asStateFlow()
     val watchedSeriesIds: StateFlow<Set<String>> = watchedSeriesStateHolder.fullyWatchedSeriesIds
+    private val _watchedDates = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val watchedDates: StateFlow<Map<String, Long>> = _watchedDates.asStateFlow()
 
     private val _uiState = MutableStateFlow<TmdbEntityBrowseUiState>(TmdbEntityBrowseUiState.Loading)
     val uiState: StateFlow<TmdbEntityBrowseUiState> = _uiState.asStateFlow()
@@ -61,6 +63,25 @@ class TmdbEntityBrowseViewModel @Inject constructor(
         viewModelScope.launch {
             watchProgressRepository.observeWatchedMovieIds()
                 .collect { ids -> _watchedMovieIds.value = ids }
+        }
+        viewModelScope.launch {
+            kotlinx.coroutines.flow.combine(
+                watchProgressRepository.allProgress,
+                watchProgressRepository.watchedItems
+            ) { progressList, watchedList ->
+                val map = HashMap<String, Long>()
+                progressList.forEach { p ->
+                    if (p.lastWatched > 0L) {
+                        map[p.contentId] = maxOf(map[p.contentId] ?: 0L, p.lastWatched)
+                    }
+                }
+                watchedList.forEach { w ->
+                    if (w.watchedAt > 0L) {
+                        map[w.contentId] = maxOf(map[w.contentId] ?: 0L, w.watchedAt)
+                    }
+                }
+                map
+            }.collect { _watchedDates.value = it }
         }
         viewModelScope.launch {
             layoutPreferenceDataStore.posterCardCornerRadiusDp
