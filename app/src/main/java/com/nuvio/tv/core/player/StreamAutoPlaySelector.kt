@@ -121,21 +121,27 @@ object StreamAutoPlaySelector {
 
         // Binge group matching takes priority over mode — even in MANUAL mode,
         // a persisted binge group should auto-play without showing the picker.
+        val playableCandidates = candidateStreams.filter { isPlayable(it) }
+        if (playableCandidates.isEmpty()) return null
+
+        val effectivePrefs = if (AutoPlayPreferences.isConfigured(preferences)) {
+            preferences
+        } else {
+            setOf(AutoPlayPreferences.Pill.Q1080.key, AutoPlayPreferences.Pill.LARGEST.key)
+        }
+
         val targetBingeGroup = preferredBingeGroup?.trim().orEmpty()
-        if (preferBingeGroupInSelection && targetBingeGroup.isNotEmpty()) {
-            // A low-quality group isn't kept to while something better is there: one 360p pick would otherwise hold
-            // every following episode at 360p.
-            val bingeGroupMatch = candidateStreams.firstOrNull { stream ->
-                stream.behaviorHints?.bingeGroup == targetBingeGroup && isPlayable(stream)
-            }?.takeUnless { match ->
-                AutoPlayPreferences.isLowQuality(match) &&
-                    candidateStreams.any { isPlayable(it) && !AutoPlayPreferences.isLowQuality(it) }
+        if (preferBingeGroupInSelection && targetBingeGroup.isNotEmpty() && bingeGroupOnly) {
+            val bingeGroupCandidates = playableCandidates.filter { stream ->
+                stream.behaviorHints?.bingeGroup == targetBingeGroup
             }
-            if (bingeGroupMatch != null) return bingeGroupMatch
-            // When bingeGroupOnly is set (MANUAL mode with only binge-group
-            // preference enabled), don't fall back to a non-matching stream —
-            // return null so the caller shows the stream picker instead.
-            if (bingeGroupOnly) return null
+            val bingeGroupMatch = AutoPlayPreferences.rank(bingeGroupCandidates, effectivePrefs)
+                .firstOrNull()
+                ?.takeUnless { match ->
+                    AutoPlayPreferences.isLowQuality(match) &&
+                        playableCandidates.any { !AutoPlayPreferences.isLowQuality(it) }
+                }
+            return bingeGroupMatch
         }
 
         if (bingeGroupOnly) return null
@@ -145,10 +151,10 @@ object StreamAutoPlaySelector {
         return when (mode) {
             StreamAutoPlayMode.MANUAL -> null
             StreamAutoPlayMode.FIRST_STREAM ->
-                AutoPlayPreferences.withoutLowQuality(candidateStreams.filter { isPlayable(it) }).firstOrNull()
+                AutoPlayPreferences.rank(playableCandidates, effectivePrefs).firstOrNull()
             StreamAutoPlayMode.REGEX_MATCH -> {
                 if (AutoPlayPreferences.isConfigured(preferences)) {
-                    return AutoPlayPreferences.rank(candidateStreams.filter { isPlayable(it) }, preferences).firstOrNull()
+                    return AutoPlayPreferences.rank(playableCandidates, effectivePrefs).firstOrNull()
                 }
                 val pattern = regexPattern.trim()
  
@@ -194,7 +200,7 @@ object StreamAutoPlaySelector {
                 }
 
                 if (matchingStreams.isEmpty()) return null
-                AutoPlayPreferences.withoutLowQuality(matchingStreams).firstOrNull()
+                AutoPlayPreferences.rank(matchingStreams, effectivePrefs).firstOrNull()
             }
 
         }

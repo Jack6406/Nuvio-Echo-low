@@ -22,7 +22,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -241,19 +246,41 @@ internal fun BinPillMenu(
     width: Dp = 240.dp
 ) {
     val requesters = remember(items.size) { List(items.size) { FocusRequester() } }
+    val scrollState = rememberScrollState()
+    val density = LocalDensity.current
+    var activeIndex by remember(items.size) {
+        mutableIntStateOf(initialIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0)))
+    }
     BackHandler { onDismiss() }
     LaunchedEffect(Unit) {
-        val target = requesters.getOrNull(initialIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0))) ?: return@LaunchedEffect
-        repeat(6) {
+        val targetIdx = initialIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0))
+        activeIndex = targetIdx
+        val rowHeightPx = with(density) { 40.dp.roundToPx() }
+        val targetScroll = (targetIdx * rowHeightPx - rowHeightPx * 3).coerceAtLeast(0)
+        runCatching { scrollState.scrollTo(targetScroll) }
+        val target = requesters.getOrNull(targetIdx) ?: return@LaunchedEffect
+        repeat(8) {
             if (runCatching { target.requestFocus() }.getOrDefault(false)) return@LaunchedEffect
             delay(40)
         }
+    }
+    LaunchedEffect(activeIndex) {
+        val rowHeightPx = with(density) { 40.dp.roundToPx() }
+        val targetScroll = (activeIndex * rowHeightPx - rowHeightPx * 3).coerceAtLeast(0)
+        runCatching { scrollState.animateScrollTo(targetScroll) }
     }
     Box(Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .layout { measurable, constraints ->
-                    val p = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+                    val maxMenuHeightPx = 360.dp.roundToPx().coerceAtMost((constraints.maxHeight - 32.dp.roundToPx()).coerceAtLeast(180))
+                    val p = measurable.measure(
+                        constraints.copy(
+                            minWidth = 0,
+                            minHeight = 0,
+                            maxHeight = maxMenuHeightPx
+                        )
+                    )
                     val margin = 16.dp.roundToPx()
                     val gap = 8.dp.roundToPx()
                     var y = anchor.bottom.toInt() + gap
@@ -263,8 +290,32 @@ internal fun BinPillMenu(
                     layout(constraints.maxWidth, constraints.maxHeight) { p.place(x, y) }
                 }
                 .widthIn(min = width)
+                .heightIn(max = 360.dp)
                 .detailGlassPanel(RoundedCornerShape(20.dp), strength = 1.6f)
                 .then(if (openedByHold) Modifier.ignoreHeldSelect() else Modifier)
+                .onPreviewKeyEvent { event ->
+                    val native = event.nativeKeyEvent
+                    if (native.action != AndroidKeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
+                    when (native.keyCode) {
+                        AndroidKeyEvent.KEYCODE_DPAD_DOWN -> {
+                            if (activeIndex < items.lastIndex) {
+                                val next = activeIndex + 1
+                                activeIndex = next
+                                runCatching { requesters[next].requestFocus() }
+                            }
+                            true
+                        }
+                        AndroidKeyEvent.KEYCODE_DPAD_UP -> {
+                            if (activeIndex > 0) {
+                                val prev = activeIndex - 1
+                                activeIndex = prev
+                                runCatching { requesters[prev].requestFocus() }
+                            }
+                            true
+                        }
+                        else -> false
+                    }
+                }
                 .trapDpadFocus()
                 .focusGroup()
                 .padding(6.dp),
@@ -276,24 +327,38 @@ internal fun BinPillMenu(
                     overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 4.dp)
                 )
             }
-            items.forEachIndexed { i, item ->
-                var focused by remember { mutableStateOf(false) }
-                Row(
-                    modifier = Modifier
-                        .widthIn(min = width - 12.dp)
-                        .height(38.dp)
-                        .selectionSurface(focused, BinsPillShape)
-                        .ndClickable(focusRequester = requesters[i], onFocusChanged = { focused = it }, onClick = item.onClick)
-                        .padding(horizontal = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        item.label, color = Color.White, fontSize = 15.sp, maxLines = 1,
-                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false)
-                    )
-                    if (item.checked) {
-                        Spacer(Modifier.width(18.dp))
-                        Text("✓", color = if (focused) Color.White else BinsMuted, fontSize = 14.sp)
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(scrollState),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                items.forEachIndexed { i, item ->
+                    var focused by remember { mutableStateOf(false) }
+                    Row(
+                        modifier = Modifier
+                            .widthIn(min = width - 12.dp)
+                            .height(38.dp)
+                            .selectionSurface(focused, BinsPillShape)
+                            .ndClickable(
+                                focusRequester = requesters[i],
+                                onFocusChanged = {
+                                    focused = it
+                                    if (it) activeIndex = i
+                                },
+                                onClick = item.onClick
+                            )
+                            .padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            item.label, color = Color.White, fontSize = 15.sp, maxLines = 1,
+                            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (item.checked) {
+                            Spacer(Modifier.width(18.dp))
+                            Text("✓", color = if (focused) Color.White else BinsMuted, fontSize = 14.sp)
+                        }
                     }
                 }
             }

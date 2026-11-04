@@ -2494,8 +2494,8 @@ private fun PlayerControlsOverlay(
                 Row(
                     modifier = Modifier
                         .appleTvFrostedGlass(RoundedCornerShape(999.dp))
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     val hasEpisodeContext = uiState.currentSeason != null && uiState.currentEpisode != null
@@ -2595,17 +2595,6 @@ private fun PlayerControlsOverlay(
                         )
                     }
 
-                    // 7. Player Accent Color Picker (Palette icon + expandable more controls)
-                    NuvioLegacyCircleIconButton(
-                        icon = androidx.compose.material.icons.Icons.Default.Palette,
-                        contentDescription = "Player Accent Color",
-                        accentColor = playerAccentColor,
-                        onClick = { showAccentPicker = true },
-                        upFocusRequester = progressUpTarget,
-                        onDownKey = onHideControls,
-                        onFocused = onResetHideTimer
-                    )
-
                     NuvioLegacyCircleIconButton(
                         icon = Icons.Default.Speed,
                         contentDescription = stringResource(R.string.cd_playback_speed),
@@ -2632,11 +2621,7 @@ private fun PlayerControlsOverlay(
             }
         }
 
-        if (showAccentPicker) {
-            PlayerAccentColorPickerDialog(
-                onDismiss = { showAccentPicker = false }
-            )
-        }
+
     }
 }
 

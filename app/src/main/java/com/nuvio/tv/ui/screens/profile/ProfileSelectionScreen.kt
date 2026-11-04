@@ -211,6 +211,9 @@ fun ProfileSelectionScreen(
     val avatarCatalog by viewModel.avatarCatalog.collectAsState()
     val profileBackgroundCatalog by viewModel.profileBackgroundCatalog.collectAsState()
     val backdropPosters by viewModel.backdropPosters.collectAsState()
+    LaunchedEffect(Unit) {
+        viewModel.refreshPosterWall()
+    }
     val hasProfileBackgroundAccess by viewModel.hasProfileBackgroundAccess.collectAsState()
     val isCreating by viewModel.isCreating.collectAsState()
     val isSaving by viewModel.isSaving.collectAsState()
@@ -911,7 +914,7 @@ private fun ProfilePosterWallBackdrop(
                                     .height(204.dp)
                                     .clip(posterShape)
                                     .background(Color(0xFF14141A), posterShape)
-                                    .border(0.5.dp, Color.White.copy(alpha = 0.08f), posterShape)
+                                    .border(0.75.dp, Color.White.copy(alpha = 0.18f), posterShape)
                             ) {
                                 coil3.compose.AsyncImage(
                                     model = request,
@@ -926,26 +929,26 @@ private fun ProfilePosterWallBackdrop(
             }
         }
 
-        // Dark radial vignette + top/bottom edge scrims + focused profile bottom color glow matching 1000041682.jpg
+        // Lightened vignette + top/bottom edge scrims so library posters are clearly visible while keeping text legible
         androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
-            drawRect(color = Color.Black.copy(alpha = 0.56f))
+            drawRect(color = Color.Black.copy(alpha = 0.22f))
             drawRect(
                 brush = Brush.radialGradient(
                     colors = listOf(
                         Color.Transparent,
-                        Color.Black.copy(alpha = 0.36f),
-                        Color.Black.copy(alpha = 0.78f)
+                        Color.Black.copy(alpha = 0.16f),
+                        Color.Black.copy(alpha = 0.46f)
                     ),
                     center = Offset(size.width * 0.5f, size.height * 0.48f),
-                    radius = size.maxDimension * 0.62f
+                    radius = size.maxDimension * 0.65f
                 )
             )
             drawRect(
                 brush = Brush.verticalGradient(
-                    0f to Color.Black.copy(alpha = 0.72f),
+                    0f to Color.Black.copy(alpha = 0.38f),
                     0.22f to Color.Transparent,
                     0.75f to Color.Transparent,
-                    1f to Color.Black.copy(alpha = 0.78f)
+                    1f to Color.Black.copy(alpha = 0.48f)
                 )
             )
             drawCircle(

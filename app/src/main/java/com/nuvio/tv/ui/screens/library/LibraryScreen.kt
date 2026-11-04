@@ -129,33 +129,43 @@ fun LibraryScreen(
     }
 
     val availableGenres = remember(sourcePoolForFilters) {
-        sourcePoolForFilters
-            .flatMap { it.entry.genres }
+        val fromItems = sourcePoolForFilters
+            .flatMap { it.entry.genres + it.preview.genres }
             .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .distinct()
-            .sorted()
+            .filter { it.isNotEmpty() && it.none(Char::isDigit) }
+        val standardGenres = listOf(
+            "Action", "Adventure", "Animation", "Biography", "Comedy", "Crime",
+            "Documentary", "Drama", "Family", "Fantasy", "History", "Horror",
+            "Mystery", "Romance", "Sci-Fi", "Thriller", "War", "Western"
+        )
+        (fromItems + standardGenres).distinctBy { it.lowercase() }.sorted()
     }
 
     val availableYears = remember(sourcePoolForFilters) {
         val yearRegex = Regex("\\b(19\\d{2}|20\\d{2})\\b")
         val exactYears = sourcePoolForFilters
-            .mapNotNull { title -> yearRegex.find(title.entry.releaseInfo.orEmpty())?.value }
+            .mapNotNull { title ->
+                yearRegex.find(title.entry.releaseInfo.orEmpty())?.value
+                    ?: yearRegex.find(title.preview.releaseInfo.orEmpty())?.value
+            }
             .distinct()
             .sortedDescending()
+        val recentYears = (2026 downTo 1980).map { it.toString() }
         val decades = listOf("2020s", "2010s", "2000s", "1990s", "Classic (<1990)")
-        (decades + exactYears).distinct()
+        (decades + (exactYears + recentYears).distinct().sortedDescending()).distinct()
     }
 
     fun matchesGenreAndYear(title: BinTitle): Boolean {
         val g = selectedGenre
-        if (g != null && title.entry.genres.none { it.trim().equals(g, ignoreCase = true) }) {
+        val itemGenres = (title.entry.genres + title.preview.genres).map { it.trim() }
+        if (g != null && itemGenres.none { it.equals(g, ignoreCase = true) || (g.equals("Sci-Fi", true) && it.equals("Science Fiction", true)) }) {
             return false
         }
         val y = selectedYear
         if (y != null) {
+            val rawYearText = "${title.entry.releaseInfo.orEmpty()} ${title.preview.releaseInfo.orEmpty()}"
             val yearInt = Regex("\\b(19\\d{2}|20\\d{2})\\b")
-                .find(title.entry.releaseInfo.orEmpty())
+                .find(rawYearText)
                 ?.value
                 ?.toIntOrNull() ?: return false
             val matchesY = when (y) {

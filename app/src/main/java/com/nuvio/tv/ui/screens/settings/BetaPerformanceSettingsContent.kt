@@ -218,6 +218,7 @@ internal fun LookAndFeelSettingsGroup(viewModel: BetaPerformanceSettingsViewMode
             checked = settings.quietFocus,
             onToggle = { viewModel.setQuietFocus(!settings.quietFocus) }
         )
+        PlayerAccentColorSettingsRow()
         SettingsToggleRow(
             title = stringResource(R.string.beta_poster_colour_mesh_title),
             subtitle = stringResource(R.string.beta_poster_colour_mesh_subtitle),
@@ -588,6 +589,7 @@ internal fun PlaybackStartRows(viewModel: BetaPerformanceSettingsViewModel = hil
 @Composable
 internal fun PlayerExtrasRows(viewModel: BetaPerformanceSettingsViewModel = hiltViewModel()) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    PlayerAccentColorSettingsRow()
     SettingsToggleRow(
         title = stringResource(R.string.beta_minimal_player_title),
         subtitle = stringResource(R.string.beta_minimal_player_subtitle),
@@ -747,4 +749,33 @@ private fun maskOmdbKey(key: String, notSetLabel: String): String {
     val trimmed = key.trim()
     if (trimmed.isEmpty()) return notSetLabel
     return if (trimmed.length <= 4) "••••" else "••••••${trimmed.takeLast(4)}"
+}
+
+
+@Composable
+internal fun PlayerAccentColorSettingsRow() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var showAccentPicker by remember { mutableStateOf(false) }
+    var currentHex by remember(showAccentPicker) {
+        mutableStateOf(com.nuvio.tv.ui.screens.player.getSavedPlayerAccentHex(context))
+    }
+    val currentLabel = remember(currentHex) {
+        com.nuvio.tv.ui.screens.player.PLAYER_ACCENT_OPTIONS
+            .firstOrNull { it.hex.equals(currentHex, ignoreCase = true) }
+            ?.name ?: "Apple TV White"
+    }
+    SettingsActionRow(
+        title = "Player Accent Color",
+        subtitle = "Highlight color for the media player progress bar and controls",
+        value = currentLabel,
+        onClick = { showAccentPicker = true }
+    )
+    if (showAccentPicker) {
+        com.nuvio.tv.ui.screens.player.PlayerAccentColorPickerDialog(
+            onDismiss = {
+                currentHex = com.nuvio.tv.ui.screens.player.getSavedPlayerAccentHex(context)
+                showAccentPicker = false
+            }
+        )
+    }
 }

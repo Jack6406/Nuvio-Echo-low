@@ -73,26 +73,52 @@ object AutoPlayPreferences {
      * qualities nearest a picked one (see [distance]); then, with a size pill, the
      * smallest (or largest) first, sizes not stated last; otherwise in their own order.
      */
+    fun isUncachedOrDownload(stream: Stream): Boolean {
+        val state = stream.debridCacheStatus?.state
+        if (state == com.nuvio.tv.domain.model.StreamDebridCacheState.NOT_CACHED ||
+            state == com.nuvio.tv.domain.model.StreamDebridCacheState.CHECKING
+        ) return true
+        val combined = listOfNotNull(stream.name, stream.title, stream.description).joinToString(" ")
+        if (UNCACHED_MARKER.containsMatchIn(combined)) return true
+        if (stream.isTorrent() && stream.getStreamUrl() == null && !stream.isDirectDebrid()) return true
+        return false
+    }
+
+    fun isCachedDebrid(stream: Stream): Boolean {
+        if (isUncachedOrDownload(stream)) return false
+        if (stream.debridCacheStatus?.state == com.nuvio.tv.domain.model.StreamDebridCacheState.CACHED) return true
+        if (stream.isDirectDebrid()) return true
+        val combined = listOfNotNull(stream.name, stream.title).joinToString(" ")
+        if (CACHED_MARKER.containsMatchIn(combined)) return true
+        return stream.getStreamUrl() != null && !stream.isTorrent()
+    }
+
     fun rank(streams: List<Stream>, selected: Set<String>): List<Stream> {
-        val pills = selected.mapNotNull(Pill::of).toSet()
+        val effectiveSelected = if (selected.isEmpty()) setOf(Pill.Q1080.key, Pill.LARGEST.key) else selected
+        val pills = effectiveSelected.mapNotNull(Pill::of).toSet()
         if (pills.isEmpty()) return streams
         val pool = if (Pill.NO_CAM in pills) streams.filterNot { CAM.containsMatchIn(text(it)) } else streams
-        val size = pills.firstOrNull { it.group == Group.SIZE }
-        val picked = pills.mapNotNull { it.quality() }
+        val size = pills.firstOrNull { it.group == Group.SIZE } ?: Pill.LARGEST
+        val picked = pills.mapNotNull { it.quality() }.ifEmpty { listOf(StreamQuality.P1080) }
         return pool.withIndex()
             .sortedWith(
-                compareByDescending<IndexedValue<Stream>> { score(it.value, pills) }
-                    .thenBy { isLowQuality(it.value) }
+                // 1. Always prefer cached debrid HTTP links over uncached/P2P torrents
+                compareByDescending<IndexedValue<Stream>> { isCachedDebrid(it.value) }
+                    .thenBy { isUncachedOrDownload(it.value) }
+                    // 2. Exact target quality match first (e.g. 1080p = distance 0)
                     .thenBy { distance(StreamQualityParser.parse(it.value), picked) }
+                    .thenBy { isLowQuality(it.value) }
+                    // 3. When Largest is active, sort strictly by largest file size in bytes descending
+                    //    so a larger 1080p cached file ALWAYS beats a smaller 1080p file!
                     .thenBy { entry ->
                         val bytes = sizeOf(entry.value)
                         when {
-                            size == null -> 0L
-                            bytes == null -> Long.MAX_VALUE
-                            size == Pill.SMALLEST -> bytes
-                            else -> Long.MAX_VALUE - bytes
+                            size == Pill.SMALLEST -> bytes ?: Long.MAX_VALUE
+                            else -> Long.MAX_VALUE - (bytes ?: 0L)
                         }
                     }
+                    // 4. Secondary preference score (Remux / Codec / HDR / Audio)
+                    .thenByDescending { score(it.value, pills) }
                     .thenBy { it.index }
             )
             .map { it.value }
@@ -160,12 +186,31 @@ object AutoPlayPreferences {
     }
 
     /** The file size the addon states, or one written in its text ("2.4 GB"). */
-    private fun sizeOf(stream: Stream): Long? {
-        stream.behaviorHints?.videoSize?.takeIf { it > 0L }?.let { return it }
-        val match = SIZE.find(text(stream)) ?: return null
-        val value = match.groupValues[1].replace(',', '.').toDoubleOrNull() ?: return null
-        val unit = match.groupValues[2].lowercase()
-        val factor = if (unit.startsWith("t")) 1e12 else if (unit.startsWith("g")) 1e9 else 1e6
+    fun sizeOf(stream: Stream): Long? {
+        val rawText = text(stream)
+        // If both pack size (📦) and episode/file size (💾) are present, prefer the 💾 file size
+        EPISODE_DISK_SIZE.find(rawText)?.let { m ->
+            parseSizeMatch(m.groupValues[1], m.groupValues[2])?.let { return it }
+        }
+        val hintSize = stream.behaviorHints?.videoSize?.takeIf { it > 0L }
+        val textSizes = SIZE.findAll(rawText).mapNotNull { m ->
+            parseSizeMatch(m.groupValues[1], m.groupValues[2])
+        }.toList()
+        if (hintSize != null && textSizes.isEmpty()) return hintSize
+        if (hintSize != null && textSizes.isNotEmpty()) {
+            return maxOf(hintSize, textSizes.max())
+        }
+        return textSizes.maxOrNull()
+    }
+
+    private fun parseSizeMatch(numStr: String, unitStr: String): Long? {
+        val value = numStr.replace(',', '.').toDoubleOrNull() ?: return null
+        val unit = unitStr.lowercase()
+        val factor = when {
+            unit.startsWith("t") -> 1_000_000_000_000.0
+            unit.startsWith("g") -> 1_000_000_000.0
+            else -> 1_000_000.0
+        }
         return (value * factor).toLong()
     }
 
@@ -182,4 +227,7 @@ object AutoPlayPreferences {
     private val WEB = Regex("(?<![a-z0-9])(web|web-?dl|web-?rip|webrip)(?![a-z0-9])", RegexOption.IGNORE_CASE)
     private val ATMOS_DTS = Regex("(?<![a-z0-9])(atmos|dts|dts-?hd|dts-?x|truehd)(?![a-z0-9])", RegexOption.IGNORE_CASE)
     private val SIZE = Regex("(\\d+(?:[.,]\\d+)?)\\s*(TB|TiB|GB|GiB|MB|MiB)(?![a-z])", RegexOption.IGNORE_CASE)
+    private val EPISODE_DISK_SIZE = Regex("💾\\s*(\\d+(?:[.,]\\d+)?)\\s*(TB|TiB|GB|GiB|MB|MiB)(?![a-z])", RegexOption.IGNORE_CASE)
+    private val UNCACHED_MARKER = Regex("(\\[[a-z]{2,4}\\s*download\\]|\\buncached\\b|⏳|⬇️|magnet:)", RegexOption.IGNORE_CASE)
+    private val CACHED_MARKER = Regex("(\\[[a-z]{2,4}\\+\\]|⚡|\\binstant\\b)", RegexOption.IGNORE_CASE)
 }

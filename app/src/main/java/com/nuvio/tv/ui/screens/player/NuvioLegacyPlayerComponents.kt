@@ -395,7 +395,7 @@ fun NuvioLegacyPrimaryPlayButton(
     Surface(
         onClick = onClick,
         modifier = modifier
-            .height(44.dp)
+            .height(36.dp)
             .focusRequester(focusRequester)
             .focusProperties { up = upFocusRequester }
             .onPreviewKeyEvent { event ->
@@ -437,21 +437,21 @@ fun NuvioLegacyPrimaryPlayButton(
     ) {
         Row(
             modifier = Modifier
-                .height(44.dp)
-                .padding(horizontal = 22.dp),
+                .height(36.dp)
+                .padding(horizontal = 15.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(9.dp)
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             Icon(
                 painter = if (isPlaying) pausePainter else playPainter,
                 contentDescription = label,
                 tint = contentColor,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(15.dp)
             )
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelLarge.copy(
-                    fontSize = 14.sp,
+                    fontSize = 12.5.sp,
                     fontWeight = FontWeight.Bold
                 ),
                 color = contentColor,
@@ -496,8 +496,8 @@ fun NuvioLegacyCircleIconButton(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier
-            .height(44.dp)
-            .widthIn(min = 44.dp)
+            .height(36.dp)
+            .widthIn(min = 36.dp)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .focusProperties { up = upFocusRequester }
             .onPreviewKeyEvent { event ->
@@ -539,9 +539,9 @@ fun NuvioLegacyCircleIconButton(
     ) {
         Row(
             modifier = Modifier
-                .height(44.dp)
+                .height(36.dp)
                 .animateContentSize(animationSpec = tween(durationMillis = 180))
-                .padding(horizontal = if (isFocused) 15.dp else 12.dp),
+                .padding(horizontal = if (isFocused) 12.dp else 9.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
@@ -550,22 +550,22 @@ fun NuvioLegacyCircleIconButton(
                     painter = iconPainter,
                     contentDescription = contentDescription,
                     tint = if (isFocused) focusedContentColor else Color.White.copy(alpha = 0.94f),
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             } else {
                 Icon(
                     imageVector = icon,
                     contentDescription = contentDescription,
                     tint = if (isFocused) focusedContentColor else Color.White.copy(alpha = 0.94f),
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
             if (isFocused && contentDescription.isNotBlank()) {
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = contentDescription,
                     style = MaterialTheme.typography.labelLarge.copy(
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     ),
                     color = focusedContentColor,

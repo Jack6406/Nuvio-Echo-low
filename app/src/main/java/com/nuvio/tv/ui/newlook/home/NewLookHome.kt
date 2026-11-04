@@ -1732,6 +1732,14 @@ private fun RowCard(
                     "${minsLeft}m left"
                 } else null
             }
+            val rawCwLogo = when (cw) {
+                is ContinueWatchingItem.InProgress -> cw.progress.logo
+                is ContinueWatchingItem.NextUp -> cw.info.logo
+                null -> null
+            } ?: logo
+            val cwImdbId = cwContentId?.let { Regex("(tt\d{5,12})").find(it)?.groupValues?.get(1) }
+            val resolvedCwLogo = rawCwLogo?.takeIf { it.isNotBlank() }
+                ?: cwImdbId?.let { "https://images.metahub.space/logo/medium/$it/img" }
             ContinueWatchingCard(
                 image = image,
                 title = item.title,
@@ -1742,7 +1750,8 @@ private fun RowCard(
                 onLongClick = onLongClick,
                 onFocusChanged = onFocusChanged,
                 modifier = modifier,
-                minutesLeftText = minutesLeftText
+                minutesLeftText = minutesLeftText,
+                logo = resolvedCwLogo
             )
         }
         row.kind == RowKind.POSTER -> PosterCard(

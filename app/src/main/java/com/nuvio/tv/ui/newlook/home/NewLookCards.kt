@@ -262,9 +262,12 @@ internal fun ContinueWatchingCard(
     onLongClick: () -> Unit,
     onFocusChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
-    minutesLeftText: String? = null
+    minutesLeftText: String? = null,
+    logo: String? = null
 ) {
     val hasProgress = progress != null && progress > 0f
+    var logoFailed by remember(logo) { mutableStateOf(false) }
+    val context = LocalContext.current
     NewLookCard(dims.cwWidth, dims.cwHeight, onClick, onLongClick, onFocusChanged, modifier, depth = CardDepthSurface.CONTINUE_WATCHING) {
         Artwork(image, Modifier.fillMaxSize(), fallbackTitle = title)
         Box(modifier = Modifier.fillMaxSize().bottomShade())
@@ -276,20 +279,39 @@ internal fun ContinueWatchingCard(
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                Text(
-                    text = title,
-                    color = Color.White,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f))
-                )
+            Column(
+                modifier = Modifier.weight(1f).padding(end = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                if (!logo.isNullOrBlank() && !logoFailed) {
+                    val logoReq = remember(context, logo) {
+                        ImageRequest.Builder(context).data(logo).crossfade(200).build()
+                    }
+                    AsyncImage(
+                        model = logoReq,
+                        contentDescription = title,
+                        contentScale = ContentScale.Fit,
+                        alignment = Alignment.BottomStart,
+                        onError = { logoFailed = true },
+                        modifier = Modifier
+                            .widthIn(max = dims.cwWidth * 0.62f)
+                            .heightIn(max = 36.dp)
+                    )
+                } else {
+                    Text(
+                        text = title,
+                        color = Color.White,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f))
+                    )
+                }
                 if (!episode.isNullOrBlank()) {
                     Text(
                         text = episode,
-                        color = Color.White.copy(alpha = 0.78f),
+                        color = Color.White.copy(alpha = 0.82f),
                         fontSize = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,

@@ -731,7 +731,7 @@ class StreamScreenViewModel @Inject constructor(
                                         }
                                     }
                                 }
-                            } else if (directFlowActive && persistedBingeGroup != null) {
+                            } else if (directFlowActive && persistedBingeGroup != null && playerSettings.streamAutoPlayMode == StreamAutoPlayMode.MANUAL) {
                                 // Before timeout: eagerly check binge group only
                                 // (no fallback to FIRST_STREAM/REGEX yet). If a
                                 // match is found we can start playback immediately

@@ -56,25 +56,46 @@ class ProfileSelectionViewModel @Inject constructor(
     private val themeDataStore: com.nuvio.tv.data.local.ThemeDataStore,
     private val customAvatarDataStore: CustomAvatarDataStore,
     private val binsRepository: com.nuvio.tv.core.bins.BinsRepository,
+    private val libraryRepository: com.nuvio.tv.domain.repository.LibraryRepository,
     private val watchProgressRepository: com.nuvio.tv.domain.repository.WatchProgressRepository
 ) : ViewModel() {
 
+    private val posterWallSeed = MutableStateFlow(System.nanoTime())
+
+    fun refreshPosterWall() {
+        posterWallSeed.value = System.nanoTime()
+    }
+
     val backdropPosters: StateFlow<List<String>> = combine(
+        libraryRepository.libraryItems,
         binsRepository.state,
-        watchProgressRepository.allProgress
-    ) { binsState, progressList ->
+        watchProgressRepository.allProgress,
+        posterWallSeed
+    ) { libraryItems, binsState, progressList, seed ->
+        val imdbRegex = Regex("(tt\\d{5,12})")
+        fun posterOrMetahub(posterUrl: String?, id: String?): String? {
+            val clean = posterUrl?.trim()?.takeIf { it.isNotBlank() && !it.contains("/background/") }
+            if (clean != null) return clean
+            val imdb = id?.let { imdbRegex.find(it)?.groupValues?.get(1) }
+            return imdb?.let { "https://images.metahub.space/poster/medium/$it/img" }
+        }
+        val rng = kotlin.random.Random(seed)
         val userPosters = buildList {
+            libraryItems.forEach { item ->
+                posterOrMetahub(item.poster, item.id)?.let(::add)
+            }
             binsState.bins.forEach { bin ->
                 bin.entries.forEach { entry ->
-                    entry.poster?.takeIf { it.isNotBlank() && !it.contains("/background/") }?.let(::add)
+                    posterOrMetahub(entry.poster, entry.id)?.let(::add)
                 }
             }
             progressList.forEach { wp ->
-                wp.poster?.takeIf { it.isNotBlank() && !it.contains("/background/") }?.let(::add)
+                posterOrMetahub(wp.poster, wp.contentId)?.let(::add)
             }
-        }.distinct()
-        (userPosters + DEFAULT_PORTRAIT_WALL_POSTERS).distinct().take(28)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, DEFAULT_PORTRAIT_WALL_POSTERS)
+        }.distinct().shuffled(rng)
+        val fallback = DEFAULT_PORTRAIT_WALL_POSTERS.shuffled(rng)
+        (userPosters + fallback).distinct().take(28)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, DEFAULT_PORTRAIT_WALL_POSTERS.shuffled())
     val activeProfileId: StateFlow<Int> = profileManager.activeProfileId
     val profiles: StateFlow<List<UserProfile>> = profileManager.profiles
 
