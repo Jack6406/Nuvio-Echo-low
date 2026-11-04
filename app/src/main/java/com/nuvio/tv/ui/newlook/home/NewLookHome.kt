@@ -1737,7 +1737,7 @@ private fun RowCard(
                 is ContinueWatchingItem.NextUp -> cw.info.logo
                 null -> null
             } ?: logo
-            val cwImdbId = cwContentId?.let { Regex("(tt\d{5,12})").find(it)?.groupValues?.get(1) }
+            val cwImdbId = cwContentId?.let { Regex("(tt\\d{5,12})").find(it)?.groupValues?.get(1) }
             val resolvedCwLogo = rawCwLogo?.takeIf { it.isNotBlank() }
                 ?: cwImdbId?.let { "https://images.metahub.space/logo/medium/$it/img" }
             ContinueWatchingCard(
