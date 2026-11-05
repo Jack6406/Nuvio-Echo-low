@@ -360,8 +360,21 @@ internal fun PlayerRuntimeController.initializePlayer(
                 )
             }
 
-            // DV7 to DV8.1 libdovi probe — only runs when the effective mode requests it.
-            val dv7ToDv81SettingActive = effectiveDv7Mode == Dv7HandlingMode.DV81_LIBDOVI
+            // DV7 to DV8.1 libdovi probe — only runs when the effective mode requests it AND the stream may actually be 4K/DV.
+            val streamMetaText = listOfNotNull(
+                _uiState.value.currentStreamName,
+                streamName,
+                currentFilename,
+                currentStreamDescription
+            ).joinToString(" ").lowercase()
+            val mightBeDolbyVisionStream = streamMetaText.isEmpty() ||
+                streamMetaText.contains("dv") ||
+                streamMetaText.contains("dovi") ||
+                streamMetaText.contains("dolby") ||
+                streamMetaText.contains("2160") ||
+                streamMetaText.contains("4k") ||
+                (!streamMetaText.contains("1080p") && !streamMetaText.contains("720p") && !streamMetaText.contains("h264") && !streamMetaText.contains("x264"))
+            val dv7ToDv81SettingActive = effectiveDv7Mode == Dv7HandlingMode.DV81_LIBDOVI && mightBeDolbyVisionStream
             val dv7ToDv81Probe = if (dv7ToDv81SettingActive) {
                 DoviBridge.probeRealtimeConversionSupport(url)
             } else {

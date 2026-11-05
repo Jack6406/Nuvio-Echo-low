@@ -67,35 +67,36 @@ class ProfileSelectionViewModel @Inject constructor(
     }
 
     val backdropPosters: StateFlow<List<String>> = combine(
-        libraryRepository.libraryItems,
-        binsRepository.state,
+        watchProgressRepository.continueWatching,
         watchProgressRepository.allProgress,
-        posterWallSeed
-    ) { libraryItems, binsState, progressList, seed ->
+        com.nuvio.tv.data.local.CustomBackdropStore.reactiveOverrides,
+        libraryRepository.libraryItems
+    ) { cwList, allProgressList, customOverrides, libraryItems ->
         val imdbRegex = Regex("(tt\\d{5,12})")
-        fun posterOrMetahub(posterUrl: String?, id: String?): String? {
-            val clean = posterUrl?.trim()?.takeIf { it.isNotBlank() && !it.contains("/background/") }
-            if (clean != null) return clean
-            val imdb = id?.let { imdbRegex.find(it)?.groupValues?.get(1) }
-            return imdb?.let { "https://images.metahub.space/poster/medium/$it/img" }
+        fun resolveBackdropUrl(backdropUrl: String?, id: String?): String? {
+            val cleanId = id?.trim()
+            if (!cleanId.isNullOrEmpty()) {
+                customOverrides[cleanId]?.takeIf { it.isNotBlank() }?.let { return it }
+            }
+            val cleanBackdrop = backdropUrl?.trim()?.takeIf { it.isNotBlank() && !it.contains("/poster/") }
+            if (cleanBackdrop != null) return cleanBackdrop
+            val imdb = cleanId?.let { imdbRegex.find(it)?.groupValues?.get(1) }
+            return imdb?.let { "https://images.metahub.space/background/large/$it/img" }
         }
-        val rng = kotlin.random.Random(seed)
-        val userPosters = buildList {
-            libraryItems.forEach { item ->
-                posterOrMetahub(item.poster, item.id)?.let(::add)
-            }
-            binsState.bins.forEach { bin ->
-                bin.entries.forEach { entry ->
-                    posterOrMetahub(entry.poster, entry.id)?.let(::add)
-                }
-            }
-            progressList.forEach { wp ->
-                posterOrMetahub(wp.poster, wp.contentId)?.let(::add)
-            }
-        }.distinct().shuffled(rng)
-        val fallback = DEFAULT_PORTRAIT_WALL_POSTERS.shuffled(rng)
-        (userPosters + fallback).distinct().take(28)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, DEFAULT_PORTRAIT_WALL_POSTERS.shuffled())
+
+        val firstCw = cwList.firstOrNull() ?: allProgressList.firstOrNull()
+        val primaryBackdrop = firstCw?.let { wp ->
+            resolveBackdropUrl(wp.backdrop, wp.contentId.ifBlank { wp.videoId })
+        } ?: libraryItems.firstNotNullOfOrNull { item ->
+            resolveBackdropUrl(item.backdrop, item.id)
+        } ?: "https://images.metahub.space/background/large/tt15239678/img"
+
+        listOf(primaryBackdrop)
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        listOf("https://images.metahub.space/background/large/tt15239678/img")
+    )
     val activeProfileId: StateFlow<Int> = profileManager.activeProfileId
     val profiles: StateFlow<List<UserProfile>> = profileManager.profiles
 

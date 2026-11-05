@@ -2441,12 +2441,19 @@ private fun PlayerControlsOverlay(
                 .align(Alignment.BottomCenter)
                 .padding(horizontal = NuvioTheme.spacing.xxl, vertical = NuvioTheme.spacing.xl)
         ) {
-            // Item 5: No addon / via text clutter above the progress bar — only clean time & quality on the right
+            // Stream badges on the left above the progress bar, and playback time on the right
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Bottom
             ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .padding(end = 16.dp)
+                ) {
+                    NuvioLegacyInlineStreamBadges(uiState = uiState)
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)

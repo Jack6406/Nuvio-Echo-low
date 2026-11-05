@@ -295,11 +295,13 @@ fun NuvioLegacyTopLeftBadges(
             )
         }
 
-        val durationMinutes = (durationMs / 60_000L).toInt().takeIf { it > 0 }
-        val yearAndRuntime = buildList {
-            uiState.releaseYear?.takeIf { it.isNotBlank() }?.let(::add)
-            durationMinutes?.let { add("${it}m") }
-        }.joinToString("  ·  ")
+        val releaseYearOnly = remember(uiState.releaseYear, uiState.title, uiState.streamInfoData?.filename) {
+            uiState.releaseYear?.trim()?.takeIf { it.isNotBlank() }
+                ?: Regex("\\b(19\\d{2}|20\\d{2})\\b")
+                    .find("${uiState.title} ${uiState.streamInfoData?.filename.orEmpty()}")
+                    ?.value
+                ?: ""
+        }
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -343,21 +345,18 @@ fun NuvioLegacyTopLeftBadges(
                     )
                 }
             }
-            if (yearAndRuntime.isNotBlank()) {
+            if (releaseYearOnly.isNotBlank()) {
                 Text(
-                    text = yearAndRuntime,
+                    text = releaseYearOnly,
                     style = MaterialTheme.typography.bodySmall.copy(
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold
                     ),
-                    color = Color.White.copy(alpha = 0.72f),
+                    color = Color.White.copy(alpha = 0.80f),
                     maxLines = 1
                 )
             }
         }
-
-        // Items 6 & 11: Formatted Stream Badges matching 1000041799.jpg
-        NuvioLegacyInlineStreamBadges(uiState = uiState)
     }
 }
 

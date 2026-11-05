@@ -554,6 +554,9 @@ class StreamScreenViewModel @Inject constructor(
                 }
                 if (selectedAutoPlayStream != null) {
                     resolvedAutoPlayTarget = true
+                    selectedAutoPlayStream.getStreamUrl()?.let { url ->
+                        com.nuvio.tv.core.streams.StreamPreconnect.warm(url, selectedAutoPlayStream.behaviorHints?.proxyHeaders?.request)
+                    }
                     logAutoPlayPick("selector", selectedAutoPlayStream, persistedBingeGroup)
                 }
 
@@ -637,6 +640,7 @@ class StreamScreenViewModel @Inject constructor(
             var autoSelectTriggered = false
             var timeoutElapsed = false
             var debridPreparationLaunched = false
+            var earlyCachedSettleJob: Job? = null
             val isUnlimitedTimeout = playerSettings.streamAutoPlayTimeoutSeconds == PlayerSettings.STREAM_AUTOPLAY_TIMEOUT_UNLIMITED
 
             fun launchDirectDebridPreparationIfNeeded(streamGroups: List<AddonStreams>) {
@@ -699,6 +703,28 @@ class StreamScreenViewModel @Inject constructor(
                             lastSuccessData = result.data
                             applySuccess(result.data, isAllLoaded = false)
                             launchDirectDebridPreparationIfNeeded(result.data)
+
+                            // Pre-warm the current top-ranked cached stream immediately so TLS + 302 redirect is ready
+                            val currentBest = AutoPlayPreferences.rank(
+                                result.data.flatMap { it.streams },
+                                playerSettings.streamAutoPlayPreferences
+                            ).firstOrNull { AutoPlayPreferences.isCachedDebrid(it) }
+                            currentBest?.getStreamUrl()?.let { warmUrl ->
+                                com.nuvio.tv.core.streams.StreamPreconnect.warm(warmUrl, currentBest.behaviorHints?.proxyHeaders?.request)
+                            }
+                            if (currentBest != null && !autoSelectTriggered && !resolvedAutoPlayTarget && !timeoutElapsed) {
+                                earlyCachedSettleJob?.cancel()
+                                earlyCachedSettleJob = viewModelScope.launch {
+                                    delay(1_100L)
+                                    if (!autoSelectTriggered && !resolvedAutoPlayTarget && lastSuccessData != null) {
+                                        timeoutElapsed = true
+                                        applySuccess(lastSuccessData!!, isAllLoaded = true)
+                                        if (resolvedAutoPlayTarget) {
+                                            autoSelectTriggered = true
+                                        }
+                                    }
+                                }
+                            }
 
                             if (autoSelectTriggered || resolvedAutoPlayTarget || autoPlayHandledForSession) {
                                 // Already resolved — nothing more to do.

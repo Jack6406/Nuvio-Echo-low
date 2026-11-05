@@ -869,10 +869,7 @@ private fun ProfilePosterWallBackdrop(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val columns = 7
-    val rowsPerColumn = 4
-    val staggerOffsets = remember { listOf(-18.dp, -62.dp, -8.dp, -52.dp, -24.dp, -68.dp, -14.dp) }
-    val posterShape = remember { RoundedCornerShape(10.dp) }
+    val backdropUrl = posters.firstOrNull()
 
     Box(
         modifier = modifier
@@ -880,82 +877,48 @@ private fun ProfilePosterWallBackdrop(
             .clip(RoundedCornerShape(0.dp)),
         contentAlignment = Alignment.Center
     ) {
-        if (posters.isNotEmpty()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        rotationZ = -12f
-                        scaleX = 1.28f
-                        scaleY = 1.28f
-                    },
-                horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                for (col in 0 until columns) {
-                    val colOffset = staggerOffsets[col % staggerOffsets.size]
-                    Column(
-                        modifier = Modifier.offset(y = colOffset),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        for (row in 0 until rowsPerColumn) {
-                            val posterIdx = (col * rowsPerColumn + row) % posters.size
-                            val posterUrl = posters[posterIdx]
-                            val request = remember(context, posterUrl) {
-                                coil3.request.ImageRequest.Builder(context)
-                                    .data(posterUrl)
-                                    .size(180, 270)
-                                    .memoryCacheKey("profile_wall_${posterUrl}_180x270")
-                                    .build()
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .width(136.dp)
-                                    .height(204.dp)
-                                    .clip(posterShape)
-                                    .background(Color(0xFF14141A), posterShape)
-                                    .border(0.75.dp, Color.White.copy(alpha = 0.18f), posterShape)
-                            ) {
-                                coil3.compose.AsyncImage(
-                                    model = request,
-                                    contentDescription = null,
-                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
-                        }
-                    }
-                }
+        if (!backdropUrl.isNullOrBlank()) {
+            val request = remember(context, backdropUrl) {
+                coil3.request.ImageRequest.Builder(context)
+                    .data(backdropUrl)
+                    .memoryCacheKey("profile_cw_backdrop_$backdropUrl")
+                    .build()
             }
+            coil3.compose.AsyncImage(
+                model = request,
+                contentDescription = null,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
         }
 
-        // Lightened vignette + top/bottom edge scrims so library posters are clearly visible while keeping text legible
+        // Subtle cinematic vignette over the Continue Watching backdrop so profile avatars & labels remain crisp
         androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
-            drawRect(color = Color.Black.copy(alpha = 0.22f))
+            drawRect(color = Color.Black.copy(alpha = 0.34f))
             drawRect(
                 brush = Brush.radialGradient(
                     colors = listOf(
                         Color.Transparent,
-                        Color.Black.copy(alpha = 0.16f),
-                        Color.Black.copy(alpha = 0.46f)
+                        Color.Black.copy(alpha = 0.22f),
+                        Color.Black.copy(alpha = 0.56f)
                     ),
                     center = Offset(size.width * 0.5f, size.height * 0.48f),
-                    radius = size.maxDimension * 0.65f
+                    radius = size.maxDimension * 0.68f
                 )
             )
             drawRect(
                 brush = Brush.verticalGradient(
-                    0f to Color.Black.copy(alpha = 0.38f),
-                    0.22f to Color.Transparent,
-                    0.75f to Color.Transparent,
-                    1f to Color.Black.copy(alpha = 0.48f)
+                    0f to Color.Black.copy(alpha = 0.46f),
+                    0.25f to Color.Transparent,
+                    0.72f to Color.Transparent,
+                    1f to Color.Black.copy(alpha = 0.58f)
                 )
             )
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        focusedAvatarColor.copy(alpha = 0.40f),
-                        focusedAvatarColor.copy(alpha = 0.14f),
+                        focusedAvatarColor.copy(alpha = 0.38f),
+                        focusedAvatarColor.copy(alpha = 0.12f),
                         Color.Transparent
                     ),
                     center = Offset(size.width * 0.5f, size.height * 0.96f),
