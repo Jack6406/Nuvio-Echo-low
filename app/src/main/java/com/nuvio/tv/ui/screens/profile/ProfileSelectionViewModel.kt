@@ -88,7 +88,7 @@ class ProfileSelectionViewModel @Inject constructor(
         val primaryBackdrop = firstCw?.let { wp ->
             resolveBackdropUrl(wp.backdrop, wp.contentId.ifBlank { wp.videoId })
         } ?: libraryItems.firstNotNullOfOrNull { item ->
-            resolveBackdropUrl(item.backdrop, item.id)
+            resolveBackdropUrl(null, item.id)
         } ?: "https://images.metahub.space/background/large/tt15239678/img"
 
         listOf(primaryBackdrop)
