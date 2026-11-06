@@ -70,6 +70,7 @@ internal fun rememberArtworkTint(url: String?): Color? {
     var color by remember(url) { mutableStateOf(url?.let { synchronized(tintCache) { tintCache[it] } }) }
     LaunchedEffect(url) {
         if (url.isNullOrBlank() || color != null) return@LaunchedEffect
+        kotlinx.coroutines.delay(120L)
         color = withContext(Dispatchers.IO) {
             val request = ImageRequest.Builder(context)
                 .data(url)

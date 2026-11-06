@@ -19,12 +19,12 @@ import kotlinx.coroutines.withContext
  * inside the OkHttp probe (not by inflating these ceilings). NextLib/extractor only use
  * whatever remains of the total deadline after OkHttp.
  */
-internal const val AFR_PREFLIGHT_OKHTTP_TIMEOUT_MS = 15_000L
-internal const val AFR_PREFLIGHT_NEXTLIB_TIMEOUT_MS = 10_000L
-internal const val AFR_PREFLIGHT_FALLBACK_TIMEOUT_MS = 5_000L
-internal const val AFR_PREFLIGHT_TOTAL_TIMEOUT_MS = 18_000L
+internal const val AFR_PREFLIGHT_OKHTTP_TIMEOUT_MS = 2_500L
+internal const val AFR_PREFLIGHT_NEXTLIB_TIMEOUT_MS = 1_500L
+internal const val AFR_PREFLIGHT_FALLBACK_TIMEOUT_MS = 1_200L
+internal const val AFR_PREFLIGHT_TOTAL_TIMEOUT_MS = 3_500L
 /** Minimum remaining time to attempt NextLib / extractor after OkHttp. */
-internal const val AFR_PREFLIGHT_MIN_STAGE_MS = 2_000L
+internal const val AFR_PREFLIGHT_MIN_STAGE_MS = 800L
 
 internal suspend fun PlayerRuntimeController.runAfrPreflightIfEnabled(
     url: String,

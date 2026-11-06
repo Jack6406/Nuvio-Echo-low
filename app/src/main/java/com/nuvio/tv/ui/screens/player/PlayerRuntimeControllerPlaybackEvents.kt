@@ -297,7 +297,12 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                         handleNaturalPlaybackEnded()
                     }
                 }
-                delay(500)
+                val mpvUiActive = !hasRenderedFirstFrame ||
+                    _uiState.value.showControls ||
+                    _uiState.value.isBuffering ||
+                    _uiState.value.showPauseOverlay ||
+                    _uiState.value.activeSkipInterval != null
+                delay(if (mpvUiActive) 350L else 1_000L)
                 continue
             }
 
@@ -398,7 +403,12 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                     }
                 }
             }
-            delay(500)
+            val exoUiActive = !hasRenderedFirstFrame ||
+                _uiState.value.showControls ||
+                _uiState.value.isBuffering ||
+                _uiState.value.showPauseOverlay ||
+                _uiState.value.activeSkipInterval != null
+            delay(if (exoUiActive) 350L else 1_000L)
         }
     }
 }

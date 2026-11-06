@@ -108,10 +108,13 @@ object NetworkModule {
         .build()
 
     /** Validating client for fixed first-party endpoints. Addon URLs use `addonPermissive`. */
+    internal val sharedConnectionPool = ConnectionPool(16, 5, TimeUnit.MINUTES)
+
     @Provides
     @Singleton
     fun provideOkHttpClient(@ApplicationContext context: Context): OkHttpClient {
         return OkHttpClient.Builder()
+            .connectionPool(sharedConnectionPool)
             .dns(IPv4FirstDns())
             // Keep separate from the old trust-all cache. Cached responses bypass a new TLS handshake.
             .cache(Cache(File(context.cacheDir, "http_cache_v2"), 50L * 1024 * 1024)) // 50 MB disk cache

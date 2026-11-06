@@ -162,7 +162,9 @@ internal fun Artwork(
     modifier: Modifier = Modifier,
     fallbackTitle: String? = null,
     /** The art a custom poster replaced, shown if the custom one fails to load. */
-    fallbackUrl: String? = null
+    fallbackUrl: String? = null,
+    maxWidth: Dp? = null,
+    maxHeight: Dp? = null
 ) {
     val shown = LocalArtworkShown.current
     if (url.isNullOrBlank()) {
@@ -175,9 +177,21 @@ internal fun Artwork(
         return
     }
     val context = LocalContext.current
-    // Built once per image, not on every recomposition of the card.
-    val request = remember(url, fallbackUrl) {
-        ImageRequest.Builder(context).data(url).customPosterFallback(url, fallbackUrl).crossfade(200).build()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val widthPx = if (maxWidth != null) with(density) { maxWidth.roundToPx().coerceAtLeast(1) } else 0
+    val heightPx = if (maxHeight != null) with(density) { maxHeight.roundToPx().coerceAtLeast(1) } else 0
+    // Built once per image and target size, decoding at exact card bounds rather than full source resolution.
+    val request = remember(url, fallbackUrl, widthPx, heightPx) {
+        ImageRequest.Builder(context)
+            .data(url)
+            .customPosterFallback(url, fallbackUrl)
+            .apply {
+                if (widthPx > 0 && heightPx > 0) {
+                    size(widthPx, heightPx)
+                }
+            }
+            .crossfade(200)
+            .build()
     }
     // Tells the card when its picture is up (the card's depth waits for it). A card showing two pictures (a poster
     // under its backdrop) counts as in once the first is.
@@ -206,7 +220,12 @@ internal fun BoxScope.CardLogo(
     var failed by remember(logo) { mutableStateOf(false) }
     if (!logo.isNullOrBlank() && !failed) {
         val context = LocalContext.current
-        val request = remember(logo) { ImageRequest.Builder(context).data(logo).crossfade(200).build() }
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val maxLogoW = with(density) { (cardWidth * maxWidthFraction).roundToPx().coerceAtLeast(1) }
+        val maxLogoH = with(density) { (cardHeight * maxHeightFraction).roundToPx().coerceAtLeast(1) }
+        val request = remember(logo, maxLogoW, maxLogoH) {
+            ImageRequest.Builder(context).data(logo).size(maxLogoW, maxLogoH).crossfade(200).build()
+        }
         AsyncImage(
             model = request,
             contentDescription = title,
@@ -268,8 +287,11 @@ internal fun ContinueWatchingCard(
     val hasProgress = progress != null && progress > 0f
     var logoFailed by remember(logo) { mutableStateOf(false) }
     val context = LocalContext.current
+    val cwDensity = androidx.compose.ui.platform.LocalDensity.current
+    val cwLogoW = with(cwDensity) { (dims.cwWidth * 0.62f).roundToPx().coerceAtLeast(1) }
+    val cwLogoH = with(cwDensity) { 36.dp.roundToPx().coerceAtLeast(1) }
     NewLookCard(dims.cwWidth, dims.cwHeight, onClick, onLongClick, onFocusChanged, modifier, depth = CardDepthSurface.CONTINUE_WATCHING) {
-        Artwork(image, Modifier.fillMaxSize(), fallbackTitle = title)
+        Artwork(image, Modifier.fillMaxSize(), fallbackTitle = title, maxWidth = dims.cwWidth, maxHeight = dims.cwHeight)
         Box(modifier = Modifier.fillMaxSize().bottomShade())
         Row(
             modifier = Modifier
@@ -284,8 +306,8 @@ internal fun ContinueWatchingCard(
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 if (!logo.isNullOrBlank() && !logoFailed) {
-                    val logoReq = remember(context, logo) {
-                        ImageRequest.Builder(context).data(logo).crossfade(200).build()
+                    val logoReq = remember(context, logo, cwLogoW, cwLogoH) {
+                        ImageRequest.Builder(context).data(logo).size(cwLogoW, cwLogoH).crossfade(200).build()
                     }
                     AsyncImage(
                         model = logoReq,
@@ -406,11 +428,12 @@ internal fun PosterCard(
     ) {
         Artwork(
             poster ?: backdrop, Modifier.fillMaxSize().graphicsLayer { alpha = posterAlpha.value },
-            fallbackTitle = title, fallbackUrl = posterFallback
+            fallbackTitle = title, fallbackUrl = posterFallback,
+            maxWidth = dims.posterWidth, maxHeight = dims.posterHeight
         )
         if (showOpen) {
             Box(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = openAlpha.value }.background(Color.Black)) {
-                Artwork(backdrop ?: poster, Modifier.fillMaxSize())
+                Artwork(backdrop ?: poster, Modifier.fillMaxSize(), maxWidth = dims.posterOpenWidth, maxHeight = dims.posterHeight)
                 HeldTrailer(active = playing, key = trailerUrl) { onFirstFrame ->
                     TrailerPlayer(
                         trailerUrl = trailerUrl,
@@ -468,7 +491,7 @@ internal fun HighlightCard(
     overlay: @Composable BoxScope.() -> Unit = {}
 ) {
     NewLookCard(dims.highlightWidth, dims.highlightHeight, onClick, onLongClick, onFocusChanged, modifier, depth = CardDepthSurface.FEATURED) {
-        Artwork(backdrop, Modifier.fillMaxSize(), fallbackTitle = title)
+        Artwork(backdrop, Modifier.fillMaxSize(), fallbackTitle = title, maxWidth = dims.highlightWidth, maxHeight = dims.highlightHeight)
         overlay()
         HeldTrailer(active = playing && trailerUrl != null, key = trailerUrl) { onFirstFrame ->
             TrailerPlayer(
@@ -696,7 +719,8 @@ internal fun CollectionTile(
     ) {
         Artwork(
             cover, Modifier.fillMaxSize(), fallbackTitle = item.title.ifBlank { null },
-            fallbackUrl = item.metaPreview?.rawPosterUrl.takeIf { !highlighted }
+            fallbackUrl = item.metaPreview?.rawPosterUrl.takeIf { !highlighted },
+            maxWidth = width, maxHeight = height
         )
         if (focused && gif != null) {
             AsyncImage(

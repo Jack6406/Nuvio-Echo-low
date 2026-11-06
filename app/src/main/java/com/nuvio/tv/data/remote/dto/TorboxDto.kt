@@ -43,6 +43,7 @@ data class TorboxTorrentFileDto(
         .orEmpty()
 }
 
+@JsonClass(generateAdapter = true)
 data class TorboxCloudItemDto(
     @Json(name = "id") val id: Any? = null,
     @Json(name = "hash") val hash: String? = null,
@@ -57,6 +58,7 @@ data class TorboxCloudItemDto(
     @Json(name = "files") val files: List<TorboxCloudFileDto>? = null
 )
 
+@JsonClass(generateAdapter = true)
 data class TorboxCloudFileDto(
     @Json(name = "id") val id: Any? = null,
     @Json(name = "name") val name: String? = null,

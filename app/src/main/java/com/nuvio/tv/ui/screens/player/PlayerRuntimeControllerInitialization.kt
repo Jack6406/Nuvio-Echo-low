@@ -160,6 +160,7 @@ internal fun PlayerRuntimeController.initializePlayer(
         return
     }
     mpvMediaLoadPrepared = false
+    PlayerPlaybackNetworking.warmUpStreamConnection(url, headers)
 
     scope.launch {
         try {

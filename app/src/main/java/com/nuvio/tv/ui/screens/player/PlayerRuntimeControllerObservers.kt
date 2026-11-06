@@ -50,8 +50,14 @@ internal suspend fun PlayerRuntimeController.fetchAddonSubtitlesNow(
         .orEmpty()
     _uiState.update { it.copy(installedSubtitleAddonOrder = installedAddonOrder) }
 
-    // Compute hash lazily for providers that support OpenSubtitles-style matching.
+    // Defer 128 KB OpenSubtitles HTTP Range hash download until after the first video frame renders
+    // (or up to 2.5s max) so ExoPlayer gets 100% uncontested Debrid bandwidth during initial startup.
     if (currentVideoHash == null && currentStreamUrl.isNotBlank()) {
+        var waitedMs = 0L
+        while (!hasRenderedFirstFrame && waitedMs < 2_500L) {
+            delay(100L)
+            waitedMs += 100L
+        }
         val result = OpenSubtitlesHasher.compute(currentStreamUrl, currentHeaders)
         if (result != null) {
             currentVideoHash = result.hash

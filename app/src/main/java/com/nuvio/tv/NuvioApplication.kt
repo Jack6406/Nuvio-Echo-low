@@ -117,6 +117,7 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
             }
             OkHttpClient.Builder()
                 .dispatcher(imageDispatcher)
+                .connectionPool(com.nuvio.tv.core.di.NetworkModule.sharedConnectionPool)
                 .dns(IPv4FirstDns())
                 .connectTimeout(4, TimeUnit.SECONDS)
                 .readTimeout(5, TimeUnit.SECONDS)
