@@ -1,6 +1,6 @@
 package com.nuvio.tv.core.player
 
-import com.nuvio.tv.core.config.AppFeaturePolicy
+import com.nuvio.tv.core.build.AppFeaturePolicy
 import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.data.local.StreamAutoPlaySource
 import com.nuvio.tv.domain.model.AddonStreams
@@ -8,41 +8,43 @@ import com.nuvio.tv.domain.model.Stream
 import com.nuvio.tv.domain.model.StreamDebridCacheState
 
 object StreamAutoPlaySelector {
-
     fun orderAddonStreams(
-        groups: List<AddonStreams>,
-        installedAddonOrder: List<String>
+        streams: List<AddonStreams>,
+        installedOrder: List<String>
     ): List<AddonStreams> {
-        if (groups.isEmpty()) return emptyList()
+        if (streams.isEmpty()) return streams
 
-        val indexMap = installedAddonOrder
-            .mapIndexed { index, name -> name to index }
-            .toMap()
+        val addonRankByName = HashMap<String, Int>(installedOrder.size)
+        installedOrder.forEachIndexed { index, addonName ->
+            if (addonName !in addonRankByName) {
+                addonRankByName[addonName] = index
+            }
+        }
 
-        return groups.withIndex()
-            .sortedWith(
-                compareBy<IndexedValue<AddonStreams>> {
-                    indexMap[it.value.addonName] ?: Int.MAX_VALUE
-                }.thenBy { it.index }
-            )
-            .map { it.value }
+        val (directDebridEntries, remainingEntries) = streams.partition {
+            it.streams.any { stream -> stream.isDirectDebrid() }
+        }
+        if (installedOrder.isEmpty()) return directDebridEntries + remainingEntries
+        val (addonEntries, pluginEntries) = remainingEntries.partition { it.addonName in addonRankByName }
+        val orderedAddons = addonEntries.sortedBy { addonRankByName.getValue(it.addonName) }
+        return directDebridEntries + orderedAddons + pluginEntries
     }
 
     private fun isPlayable(stream: Stream): Boolean {
+        // External URL streams (e.g. error pages, web links) are not playable.
+        if (stream.isExternal()) return false
         when (stream.debridCacheStatus?.state) {
             StreamDebridCacheState.CHECKING,
-            StreamDebridCacheState.NOT_CACHED -> return false
+            StreamDebridCacheState.NOT_CACHED,
+            StreamDebridCacheState.UNKNOWN -> return false
             StreamDebridCacheState.CACHED,
-            StreamDebridCacheState.UNKNOWN,
             null -> Unit
         }
-
-        if (stream.isDirectDebrid()) {
-            return true
-        }
-
-        return stream.getStreamUrl() != null ||
+        return !stream.getStreamUrl().isNullOrBlank() ||
             stream.isTorrent() ||
+            stream.isDirectDebrid() ||
+            // A YouTube id is resolved to a playable URL on the device when the stream is played.
+            // Builds without in-app YouTube playback open the watch page instead, an external link.
             (AppFeaturePolicy.inAppTrailerPlaybackEnabled && stream.youTubeIdToResolve() != null)
     }
 
