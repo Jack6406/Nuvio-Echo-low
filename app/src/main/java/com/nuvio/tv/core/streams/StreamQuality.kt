@@ -97,8 +97,8 @@ object StreamQualityParser {
     /** One text on its own: its stated resolution if it has one, else its loose word. */
     internal fun parseText(text: String?): StreamQuality? = exact(text) ?: loose(text)
 
-    private val explicit1080pToken = Regex("(?<![a-z0-9])(1080[pi]|1920\s?[x×]\s?1080)(?![a-z0-9])", RegexOption.IGNORE_CASE)
-    private val explicit2160pToken = Regex("(?<![a-z0-9])(2160[pi]|3840\s?[x×]\s?2160)(?![a-z0-9])", RegexOption.IGNORE_CASE)
+    private val explicit1080pToken = Regex("(?<![a-z0-9])(1080[pi]|1920\\s?[x×]\\s?1080)(?![a-z0-9])", RegexOption.IGNORE_CASE)
+    private val explicit2160pToken = Regex("(?<![a-z0-9])(2160[pi]|3840\\s?[x×]\\s?2160)(?![a-z0-9])", RegexOption.IGNORE_CASE)
 
     /** A resolution stated as a name ("1080p", "4K") or as a size ("1920x1080"), the better if both. */
     private fun exact(text: String?): StreamQuality? {
