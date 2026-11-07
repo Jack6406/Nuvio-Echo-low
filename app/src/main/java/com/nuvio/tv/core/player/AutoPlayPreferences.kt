@@ -67,18 +67,17 @@ object AutoPlayPreferences {
     /** [streams] without the low-quality ones, unless that leaves nothing. */
     fun withoutLowQuality(streams: List<Stream>): List<Stream> = streams.filterNot(::isLowQuality).ifEmpty { streams }
 
-    /**
-     * [streams] best first for [selected]: CAM and TS releases left out with "No CAM/TS"; then those matching the most
-     * picked groups (quality counts most); then low-quality sources last; then, when no picked quality matched, the
-     * qualities nearest a picked one (see [distance]); then, with a size pill, the
-     * smallest (or largest) first, sizes not stated last; otherwise in their own order.
-     */
     fun isUncachedOrDownload(stream: Stream): Boolean {
         val state = stream.debridCacheStatus?.state
         if (state == com.nuvio.tv.domain.model.StreamDebridCacheState.NOT_CACHED ||
             state == com.nuvio.tv.domain.model.StreamDebridCacheState.CHECKING
         ) return true
-        val combined = listOfNotNull(stream.name, stream.title, stream.description).joinToString(" ")
+        val combined = listOfNotNull(
+            stream.name,
+            stream.title,
+            stream.description,
+            stream.badges.joinToString(" ") { it.name }
+        ).joinToString(" ")
         if (UNCACHED_MARKER.containsMatchIn(combined)) return true
         if (stream.isTorrent() && stream.getStreamUrl() == null && !stream.isDirectDebrid()) return true
         return false
@@ -88,36 +87,45 @@ object AutoPlayPreferences {
         if (isUncachedOrDownload(stream)) return false
         if (stream.debridCacheStatus?.state == com.nuvio.tv.domain.model.StreamDebridCacheState.CACHED) return true
         if (stream.isDirectDebrid()) return true
-        val combined = listOfNotNull(stream.name, stream.title).joinToString(" ")
+        val combined = listOfNotNull(
+            stream.name,
+            stream.title,
+            stream.description,
+            stream.badges.joinToString(" ") { it.name }
+        ).joinToString(" ")
         if (CACHED_MARKER.containsMatchIn(combined)) return true
         return stream.getStreamUrl() != null && !stream.isTorrent()
     }
 
+    /**
+     * Ranks [streams] so that:
+     * 1. Cached Debrid / direct playable HTTP streams always come before uncached/P2P torrents.
+     * 2. Exact 1080p (`StreamQuality.P1080`) streams always come first (distance 0), followed by nearest quality.
+     * 3. Within the same quality bucket (e.g. all cached 1080p streams), streams are sorted strictly by
+     *    LARGEST file size in bytes descending (`sizeOf(stream)`), so the largest 1080p cached file ALWAYS wins.
+     * 4. Secondary preference score (Remux / BluRay / Codec / Audio) breaks any exact byte-size ties.
+     */
     fun rank(streams: List<Stream>, selected: Set<String>): List<Stream> {
-        val effectiveSelected = if (selected.isEmpty()) setOf(Pill.Q1080.key, Pill.LARGEST.key) else selected
+        if (streams.isEmpty()) return streams
+        val effectiveSelected = (selected - Pill.SMALLEST.key) + setOf(Pill.Q1080.key, Pill.LARGEST.key)
         val pills = effectiveSelected.mapNotNull(Pill::of).toSet()
-        if (pills.isEmpty()) return streams
-        val pool = if (Pill.NO_CAM in pills) streams.filterNot { CAM.containsMatchIn(text(it)) } else streams
-        val size = pills.firstOrNull { it.group == Group.SIZE } ?: Pill.LARGEST
-        val picked = pills.mapNotNull { it.quality() }.ifEmpty { listOf(StreamQuality.P1080) }
+        val nonCamPool = streams.filterNot { CAM.containsMatchIn(text(it)) }
+        val pool = nonCamPool.ifEmpty { streams }
+        // Always target 1080p first so 1080p cached streams have distance 0
+        val targetQualities = listOf(StreamQuality.P1080)
+
         return pool.withIndex()
             .sortedWith(
                 // 1. Always prefer cached debrid HTTP links over uncached/P2P torrents
                 compareByDescending<IndexedValue<Stream>> { isCachedDebrid(it.value) }
                     .thenBy { isUncachedOrDownload(it.value) }
-                    // 2. Exact target quality match first (e.g. 1080p = distance 0)
-                    .thenBy { distance(StreamQualityParser.parse(it.value), picked) }
+                    // 2. Exact 1080p quality match first (distance 0 for 1080p)
+                    .thenBy { distance(StreamQualityParser.parse(it.value), targetQualities) }
                     .thenBy { isLowQuality(it.value) }
-                    // 3. When Largest is active, sort strictly by largest file size in bytes descending
-                    //    so a larger 1080p cached file ALWAYS beats a smaller 1080p file!
-                    .thenBy { entry ->
-                        val bytes = sizeOf(entry.value)
-                        when {
-                            size == Pill.SMALLEST -> bytes ?: Long.MAX_VALUE
-                            else -> Long.MAX_VALUE - (bytes ?: 0L)
-                        }
-                    }
-                    // 4. Secondary preference score (Remux / Codec / HDR / Audio)
+                    // 3. Strictly largest file size in bytes descending so a larger 1080p cached file
+                    //    ALWAYS beats a smaller 1080p file!
+                    .thenByDescending { entry -> sizeOf(entry.value) ?: -1L }
+                    // 4. Secondary preference score (Remux / BluRay / Codec / HDR / Audio)
                     .thenByDescending { score(it.value, pills) }
                     .thenBy { it.index }
             )
@@ -128,40 +136,24 @@ object AutoPlayPreferences {
     private fun score(stream: Stream, pills: Set<Pill>): Int {
         var score = 0
         val text by lazy { text(stream) }
-        val qualities = pills.filter { it.group == Group.QUALITY }
-        if (qualities.isNotEmpty()) {
-            val quality = StreamQualityParser.parse(stream)
-            if (qualities.any { it.quality() == quality }) score += 1000
-        }
+        val quality = StreamQualityParser.parse(stream)
+        if (quality == StreamQuality.P1080) score += 1000
+        if (REMUX.containsMatchIn(text)) score += 50
+        if (BLURAY.containsMatchIn(text)) score += 25
         pills.firstOrNull { it.group == Group.CODEC }?.let { pill ->
             if ((if (pill == Pill.HEVC) HEVC else AVC).containsMatchIn(text)) score += 10
         }
         pills.firstOrNull { it.group == Group.PICTURE }?.let { pill ->
             if (HDR.containsMatchIn(text) == (pill == Pill.HDR)) score += 10
         }
-        val releases = pills.filter { it.group == Group.RELEASE }
-        if (releases.any { release ->
-                when (release) {
-                    Pill.REMUX -> REMUX.containsMatchIn(text)
-                    Pill.BLURAY -> BLURAY.containsMatchIn(text)
-                    else -> WEB.containsMatchIn(text)
-                }
-            }
-        ) score += 10
-        if (Pill.ATMOS_DTS in pills && ATMOS_DTS.containsMatchIn(text)) score += 5
+        if (ATMOS_DTS.containsMatchIn(text)) score += 5
         return score
     }
 
     /** Whether [stream] matches every picked group but size (for preparing debrid sources ahead). */
     fun matches(stream: Stream, selected: Set<String>): Boolean {
-        val pills = selected.mapNotNull(Pill::of).toSet()
-        if (Pill.NO_CAM in pills && CAM.containsMatchIn(text(stream))) return false
-        val groups = pills.map { it.group }.filter { it != Group.SIZE && it != Group.CAM }.toSet()
-        if (groups.isEmpty()) return true
-        val expected = (if (Group.QUALITY in groups) 1000 else 0) +
-            listOf(Group.CODEC, Group.PICTURE, Group.RELEASE).count { it in groups } * 10 +
-            (if (Group.AUDIO in groups) 5 else 0)
-        return score(stream, pills) >= expected
+        if (CAM.containsMatchIn(text(stream))) return false
+        return StreamQualityParser.parse(stream) == StreamQuality.P1080
     }
 
     /**
@@ -185,39 +177,78 @@ object AutoPlayPreferences {
         else -> null
     }
 
-    /** The file size the addon states, or one written in its text ("2.4 GB"). */
+    /**
+     * Canonical file size resolution in bytes:
+     * 1. Structured byte fields (`behaviorHints.videoSize`, `clientResolve.stream.raw.size`, `debridCacheStatus.cachedSize`).
+     * 2. If both season-pack size (📦) and episode disk size (💾) appear in text and no structured episode size exists,
+     *    prefer the 💾 file size.
+     * 3. All size tokens parsed from `name`, `title`, `description`, `filename`, and `badges`.
+     */
     fun sizeOf(stream: Stream): Long? {
+        val structuredSizes = listOfNotNull(
+            stream.behaviorHints?.videoSize?.takeIf { it > 0L },
+            stream.clientResolve?.stream?.raw?.size?.takeIf { it > 0L },
+            stream.debridCacheStatus?.cachedSize?.takeIf { it > 0L }
+        )
         val rawText = text(stream)
-        // If both pack size (📦) and episode/file size (💾) are present, prefer the 💾 file size
-        EPISODE_DISK_SIZE.find(rawText)?.let { m ->
-            parseSizeMatch(m.groupValues[1], m.groupValues[2])?.let { return it }
+
+        // If structured size is present on the stream, use the largest structured file size unless
+        // the text explicitly shows an episode-specific 💾 size that is smaller than a season-pack size.
+        val episodeDiskSizes = EPISODE_DISK_SIZE.findAll(rawText).mapNotNull { m ->
+            parseSizeMatch(m.groupValues[1], m.groupValues[2])
+        }.toList()
+        val hasPackMarker = rawText.contains("📦")
+        if (hasPackMarker && episodeDiskSizes.isNotEmpty()) {
+            return episodeDiskSizes.max()
         }
-        val hintSize = stream.behaviorHints?.videoSize?.takeIf { it > 0L }
+
         val textSizes = SIZE.findAll(rawText).mapNotNull { m ->
             parseSizeMatch(m.groupValues[1], m.groupValues[2])
         }.toList()
-        if (hintSize != null && textSizes.isEmpty()) return hintSize
-        if (hintSize != null && textSizes.isNotEmpty()) {
-            return maxOf(hintSize, textSizes.max())
+
+        val bestStructured = structuredSizes.maxOrNull()
+        val bestText = (episodeDiskSizes + textSizes).maxOrNull()
+        return when {
+            bestStructured != null && bestText != null -> maxOf(bestStructured, bestText)
+            bestStructured != null -> bestStructured
+            else -> bestText
         }
-        return textSizes.maxOrNull()
     }
 
     private fun parseSizeMatch(numStr: String, unitStr: String): Long? {
-        val value = numStr.replace(',', '.').toDoubleOrNull() ?: return null
+        // Handle thousands separator commas like "1,450 MB" vs decimal commas like "14,2 GB"
+        val normalizedNum = if (THOUSANDS_COMMA.matches(numStr)) {
+            numStr.replace(",", "")
+        } else {
+            numStr.replace(',', '.')
+        }
+        val value = normalizedNum.toDoubleOrNull() ?: return null
+        if (value <= 0.0) return null
         val unit = unitStr.lowercase()
         val factor = when {
-            unit.startsWith("t") -> 1_000_000_000_000.0
-            unit.startsWith("g") -> 1_000_000_000.0
-            else -> 1_000_000.0
+            unit.startsWith("t") -> 1024.0 * 1024.0 * 1024.0 * 1024.0
+            unit.startsWith("g") -> 1024.0 * 1024.0 * 1024.0
+            unit.startsWith("m") -> 1024.0 * 1024.0
+            unit.startsWith("k") -> 1024.0
+            else -> 1024.0 * 1024.0
         }
-        return (value * factor).toLong()
+        return (value * factor).toLong().takeIf { it > 0L }
     }
 
     private fun text(stream: Stream): String = listOfNotNull(
-        stream.name, stream.title, stream.description, stream.behaviorHints?.filename,
+        stream.name,
+        stream.title,
+        stream.description,
+        stream.behaviorHints?.filename,
+        stream.clientResolve?.filename,
+        stream.clientResolve?.torrentName,
+        stream.clientResolve?.stream?.raw?.filename,
+        stream.clientResolve?.stream?.raw?.torrentName,
+        stream.debridCacheStatus?.cachedName,
+        stream.badges.takeIf { it.isNotEmpty() }?.joinToString(" ") { it.name }
     ).joinToString(" ")
 
+    private val THOUSANDS_COMMA = Regex("^\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?$")
     private val CAM = Regex("(?<![a-z0-9])(cam|camrip|hdcam|ts|hdts|telesync|tc|telecine)(?![a-z0-9])", RegexOption.IGNORE_CASE)
     private val HEVC = Regex("(?<![a-z0-9])(hevc|x265|h\\.?265)(?![a-z0-9])", RegexOption.IGNORE_CASE)
     private val AVC = Regex("(?<![a-z0-9])(avc|x264|h\\.?264)(?![a-z0-9])", RegexOption.IGNORE_CASE)
@@ -226,8 +257,10 @@ object AutoPlayPreferences {
     private val BLURAY = Regex("(?<![a-z0-9])(blu-?ray|bdrip|brrip|bd)(?![a-z0-9])", RegexOption.IGNORE_CASE)
     private val WEB = Regex("(?<![a-z0-9])(web|web-?dl|web-?rip|webrip)(?![a-z0-9])", RegexOption.IGNORE_CASE)
     private val ATMOS_DTS = Regex("(?<![a-z0-9])(atmos|dts|dts-?hd|dts-?x|truehd)(?![a-z0-9])", RegexOption.IGNORE_CASE)
-    private val SIZE = Regex("(\\d+(?:[.,]\\d+)?)\\s*(TB|TiB|GB|GiB|MB|MiB)(?![a-z])", RegexOption.IGNORE_CASE)
-    private val EPISODE_DISK_SIZE = Regex("💾\\s*(\\d+(?:[.,]\\d+)?)\\s*(TB|TiB|GB|GiB|MB|MiB)(?![a-z])", RegexOption.IGNORE_CASE)
-    private val UNCACHED_MARKER = Regex("(\\[[a-z]{2,4}\\s*download\\]|\\buncached\\b|⏳|⬇️|magnet:)", RegexOption.IGNORE_CASE)
-    private val CACHED_MARKER = Regex("(\\[[a-z]{2,4}\\+\\]|⚡|\\binstant\\b)", RegexOption.IGNORE_CASE)
+    // Match file sizes (e.g. "14.2 GB", "14.2GiB", "850 MB") but NOT transfer speeds like "25 MB/s" or "25 Mbps"
+    private val SIZE = Regex("(\\d+(?:[.,]\\d+)?)\\s*(TB|TiB|GB|GiB|MB|MiB)(?![a-z/])", RegexOption.IGNORE_CASE)
+    private val EPISODE_DISK_SIZE = Regex("💾\\s*(\\d+(?:[.,]\\d+)?)\\s*(TB|TiB|GB|GiB|MB|MiB)(?![a-z/])", RegexOption.IGNORE_CASE)
+    // Note: Do NOT include ⬇️ here because addons like MediaFusion/Comet/AIOStreams use ⬇️ for file size or seeders!
+    private val UNCACHED_MARKER = Regex("(\\[[a-z]{2,4}\\s*download\\]|\\buncached\\b|⏳|❌|magnet:)", RegexOption.IGNORE_CASE)
+    private val CACHED_MARKER = Regex("(\\[[a-z]{2,4}\\+\\]|⚡|\\binstant\\b|\\bcached\\b)", RegexOption.IGNORE_CASE)
 }

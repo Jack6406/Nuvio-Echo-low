@@ -276,7 +276,7 @@ data class PlayerSettings(
     val streamAutoPlayNextEpisodeFallbackEnabled: Boolean = true,
     val streamAutoPlayPreferBingeGroupForNextEpisode: Boolean = true,
     val streamAutoPlayReuseBingeGroup: Boolean = false,
-    val streamAutoPlayTimeoutSeconds: Int = 3,
+    val streamAutoPlayTimeoutSeconds: Int = 6,
     val preloadNextEpisodeSources: Boolean = false,
     val stillWatchingEnabled: Boolean = false,
     val stillWatchingEpisodeThreshold: Int = DEFAULT_STILL_WATCHING_EPISODE_THRESHOLD,
@@ -340,7 +340,7 @@ data class PlayerSettings(
             listOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 25, 30, STREAM_AUTOPLAY_TIMEOUT_UNLIMITED)
 
         fun applyLegacyTimeoutSentinelMigration(stored: Int?): Int {
-            val raw = if (stored == null || stored == 10) 3 else stored
+            val raw = if (stored == null || stored == 10 || stored == 3) 6 else stored
             if (raw == 11) return STREAM_AUTOPLAY_TIMEOUT_UNLIMITED
             if (raw in STREAM_AUTOPLAY_TIMEOUT_VALUES) return raw
             return STREAM_AUTOPLAY_TIMEOUT_VALUES

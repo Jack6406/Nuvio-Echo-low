@@ -48,8 +48,6 @@ object StreamAutoPlaySelector {
             (AppFeaturePolicy.inAppTrailerPlaybackEnabled && stream.youTubeIdToResolve() != null)
     }
 
-
-
     /** Streams auto-play may pick from: the configured source scope and addon/plugin selection. */
     private fun scopedCandidates(
         streams: List<Stream>,
@@ -82,8 +80,7 @@ object StreamAutoPlaySelector {
     /**
      * Beta source fallback: auto-play is on but every addon it is limited to came back empty
      * (failed, timed out or had nothing for this title). Rather than dropping to the manual list,
-     * play the first playable stream from the remaining addons, in addon order. When the user's
-     * own rule had candidates (for example a regex that didn't match), its outcome stands.
+     * play the best ranked playable stream from the remaining addons.
      */
     fun fallbackWhenPreferredSourcesEmpty(
         streams: List<Stream>,
@@ -97,7 +94,8 @@ object StreamAutoPlaySelector {
         if (scopedCandidates(streams, source, installedAddonNames, selectedAddons, selectedPlugins).isNotEmpty()) {
             return null
         }
-        return streams.firstOrNull { isPlayable(it) && !it.isTorrent() }
+        val playable = streams.filter { isPlayable(it) && !it.isTorrent() }
+        return AutoPlayPreferences.rank(playable, setOf(AutoPlayPreferences.Pill.Q1080.key, AutoPlayPreferences.Pill.LARGEST.key)).firstOrNull()
     }
 
     fun selectAutoPlayStream(
@@ -117,92 +115,21 @@ object StreamAutoPlaySelector {
         if (streams.isEmpty()) return null
 
         val candidateStreams = scopedCandidates(streams, source, installedAddonNames, selectedAddons, selectedPlugins)
+            .ifEmpty { streams }
         if (candidateStreams.isEmpty()) return null
 
-        // Binge group matching takes priority over mode — even in MANUAL mode,
-        // a persisted binge group should auto-play without showing the picker.
         val playableCandidates = candidateStreams.filter { isPlayable(it) }
         if (playableCandidates.isEmpty()) return null
 
-        val effectivePrefs = if (AutoPlayPreferences.isConfigured(preferences)) {
-            preferences
-        } else {
-            setOf(AutoPlayPreferences.Pill.Q1080.key, AutoPlayPreferences.Pill.LARGEST.key)
-        }
-
-        val targetBingeGroup = preferredBingeGroup?.trim().orEmpty()
-        if (preferBingeGroupInSelection && targetBingeGroup.isNotEmpty() && bingeGroupOnly) {
-            val bingeGroupCandidates = playableCandidates.filter { stream ->
-                stream.behaviorHints?.bingeGroup == targetBingeGroup
-            }
-            val bingeGroupMatch = AutoPlayPreferences.rank(bingeGroupCandidates, effectivePrefs)
-                .firstOrNull()
-                ?.takeUnless { match ->
-                    AutoPlayPreferences.isLowQuality(match) &&
-                        playableCandidates.any { !AutoPlayPreferences.isLowQuality(it) }
-                }
-            return bingeGroupMatch
-        }
-
+        // Do not allow early bingeGroupOnly checks to lock in a smaller stream before all addons finish.
         if (bingeGroupOnly) return null
 
         if (mode == StreamAutoPlayMode.MANUAL) return null
 
-        return when (mode) {
-            StreamAutoPlayMode.MANUAL -> null
-            StreamAutoPlayMode.FIRST_STREAM ->
-                AutoPlayPreferences.rank(playableCandidates, effectivePrefs).firstOrNull()
-            StreamAutoPlayMode.REGEX_MATCH -> {
-                if (AutoPlayPreferences.isConfigured(preferences)) {
-                    return AutoPlayPreferences.rank(playableCandidates, effectivePrefs).firstOrNull()
-                }
-                val pattern = regexPattern.trim()
- 
-                // Try to compile the user regex
-                val userRegex = runCatching { Regex(pattern, RegexOption.IGNORE_CASE) }.getOrNull()
-                if (userRegex == null) return null
+        val effectivePrefs = (preferences - AutoPlayPreferences.Pill.SMALLEST.key) +
+            setOf(AutoPlayPreferences.Pill.Q1080.key, AutoPlayPreferences.Pill.LARGEST.key)
 
-                // Auto-extract exclusion patterns from negative lookaheads
-                val exclusionMatches = Regex("\\(\\?![^)]*?\\(([^)]+)\\)").findAll(pattern)
-
-                val exclusionWords = exclusionMatches
-                    .flatMap { match -> match.groupValues[1].split("|") }
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() }
-                    .toList()
-
-                val excludeRegex = if (exclusionWords.isNotEmpty()) {
-                    Regex("\\b(${exclusionWords.joinToString("|")})\\b", RegexOption.IGNORE_CASE)
-                } else null
-
-                // 1. Build list of ALL regex‑matching streams
-                val matchingStreams = candidateStreams.filter { stream ->
-                    if (!isPlayable(stream)) return@filter false
-
-                    val searchableText = buildString {
-                        append(stream.addonName).append(' ')
-                        append(stream.name.orEmpty()).append(' ')
-                        append(stream.title.orEmpty()).append(' ')
-                        append(stream.description.orEmpty()).append(' ')
-                        append(stream.getStreamUrl().orEmpty())
-                        if (stream.isTorrent()) append(' ').append(stream.infoHash.orEmpty())
-                    }
-
-                    // Must match include pattern
-                    if (!userRegex.containsMatchIn(searchableText)) return@filter false
-
-                    // Must NOT match exclusion pattern
-                    if (excludeRegex != null && excludeRegex.containsMatchIn(searchableText)) {
-                        return@filter false
-                    }
-
-                    true
-                }
-
-                if (matchingStreams.isEmpty()) return null
-                AutoPlayPreferences.rank(matchingStreams, effectivePrefs).firstOrNull()
-            }
-
-        }
+        // Always rank all playable candidates by cached debrid -> 1080p -> largest byte size descending!
+        return AutoPlayPreferences.rank(playableCandidates, effectivePrefs).firstOrNull()
     }
 }

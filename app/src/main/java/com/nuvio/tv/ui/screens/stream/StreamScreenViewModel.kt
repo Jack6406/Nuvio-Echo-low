@@ -413,7 +413,7 @@ class StreamScreenViewModel @Inject constructor(
                 }
             }
 
-            if (!autoPlayHandledForSession && playerSettings.streamReuseLastLinkEnabled) {
+            if (false && !autoPlayHandledForSession && playerSettings.streamReuseLastLinkEnabled) {
                 // A remembered link below 720p isn't reused: the sources are fetched and auto-play picks again,
                 // where low quality is a last resort, so resuming doesn't start at 360p because the last session
                 // did (until Auto quality stepped it up).
@@ -516,8 +516,16 @@ class StreamScreenViewModel @Inject constructor(
                     }
                 }
 
-                val allStreams = mergedAddonStreams.flatMap { it.streams }
-                val availableAddons = mergedAddonStreams.map { it.addonName }
+                val rankedAddonStreams = mergedAddonStreams.map { group ->
+                    group.copy(
+                        streams = AutoPlayPreferences.rank(group.streams, playerSettings.streamAutoPlayPreferences)
+                    )
+                }
+                val allStreams = AutoPlayPreferences.rank(
+                    rankedAddonStreams.flatMap { it.streams },
+                    playerSettings.streamAutoPlayPreferences
+                )
+                val availableAddons = rankedAddonStreams.map { it.addonName }
                 // Auto-select only after all addons have responded or the
                 // configured timeout has elapsed. This gives slower addons a
                 // chance to return higher-quality streams before the selector
@@ -578,7 +586,7 @@ class StreamScreenViewModel @Inject constructor(
                 updateUiStateIfChanged {
                     it.copy(
                         isLoading = false,
-                        addonStreams = mergedAddonStreams,
+                        addonStreams = rankedAddonStreams,
                         allStreams = allStreams,
                         filteredStreams = paginatedStreams,
                         availableAddons = availableAddons,
@@ -640,7 +648,10 @@ class StreamScreenViewModel @Inject constructor(
             var autoSelectTriggered = false
             var timeoutElapsed = false
             var debridPreparationLaunched = false
-            var earlyCachedSettleJob: Job? = null
+            val expectedStreamAddonNames = installedAddons
+                .filter { it.supportsStreamResourceForChip(contentType) }
+                .map { it.displayName }
+                .toSet()
             val isUnlimitedTimeout = playerSettings.streamAutoPlayTimeoutSeconds == PlayerSettings.STREAM_AUTOPLAY_TIMEOUT_UNLIMITED
 
             fun launchDirectDebridPreparationIfNeeded(streamGroups: List<AddonStreams>) {
@@ -712,18 +723,11 @@ class StreamScreenViewModel @Inject constructor(
                             currentBest?.getStreamUrl()?.let { warmUrl ->
                                 com.nuvio.tv.core.streams.StreamPreconnect.warm(warmUrl, currentBest.behaviorHints?.proxyHeaders?.request)
                             }
-                            if (currentBest != null && !autoSelectTriggered && !resolvedAutoPlayTarget && !timeoutElapsed) {
-                                earlyCachedSettleJob?.cancel()
-                                earlyCachedSettleJob = viewModelScope.launch {
-                                    delay(1_100L)
-                                    if (!autoSelectTriggered && !resolvedAutoPlayTarget && lastSuccessData != null) {
-                                        timeoutElapsed = true
-                                        applySuccess(lastSuccessData!!, isAllLoaded = true)
-                                        if (resolvedAutoPlayTarget) {
-                                            autoSelectTriggered = true
-                                        }
-                                    }
-                                }
+                            val respondedAddonNames = result.data.map { it.addonName }.toSet()
+                            val allExpectedAddonsLoaded = expectedStreamAddonNames.isNotEmpty() &&
+                                respondedAddonNames.containsAll(expectedStreamAddonNames)
+                            if (allExpectedAddonsLoaded && !autoSelectTriggered && !resolvedAutoPlayTarget) {
+                                timeoutElapsed = true
                             }
 
                             if (autoSelectTriggered || resolvedAutoPlayTarget || autoPlayHandledForSession) {
@@ -851,8 +855,13 @@ class StreamScreenViewModel @Inject constructor(
             // - unlimited: check each addon response as it arrives; if a match
             //   is found use it immediately; otherwise keep waiting until all
             //   addons finish or the hard timeout (60s) forces a fallback.
-            val timeoutMs = playerSettings.streamAutoPlayTimeoutSeconds * 1_000L
-            if (PlayerSettings.isBoundedTimeout(playerSettings.streamAutoPlayTimeoutSeconds)) {
+            val effectiveTimeoutSec = if (playerSettings.streamAutoPlayTimeoutSeconds in 0..5) {
+                6
+            } else {
+                playerSettings.streamAutoPlayTimeoutSeconds
+            }
+            val timeoutMs = effectiveTimeoutSec * 1_000L
+            if (PlayerSettings.isBoundedTimeout(effectiveTimeoutSec)) {
                 delay(timeoutMs)
             }
             timeoutElapsed = true

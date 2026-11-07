@@ -53,15 +53,21 @@ object StreamQualityParser {
     fun parse(stream: Stream): StreamQuality? {
         val key = IdentityKey(stream)
         synchronized(cache) { cache[key]?.let { return it.quality } }
+        val badgeText = stream.badges.takeIf { it.isNotEmpty() }?.joinToString(" ") { it.name }
         val quality = cappedByName(
             parseText(stream.quality)
                 ?: parseText(stream.clientResolve?.stream?.raw?.parsed?.resolution)
                 ?: parse(
                     stream.behaviorHints?.filename,
                     stream.clientResolve?.filename,
-                    stream.name,
+                    stream.clientResolve?.torrentName,
+                    stream.clientResolve?.stream?.raw?.filename,
+                    stream.clientResolve?.stream?.raw?.torrentName,
+                    stream.debridCacheStatus?.cachedName,
                     stream.title,
-                    stream.description
+                    stream.description,
+                    badgeText,
+                    stream.name
                 ),
             stream.name
         )
@@ -91,8 +97,15 @@ object StreamQualityParser {
     /** One text on its own: its stated resolution if it has one, else its loose word. */
     internal fun parseText(text: String?): StreamQuality? = exact(text) ?: loose(text)
 
+    private val explicit1080pToken = Regex("(?<![a-z0-9])(1080[pi]|1920\s?[x×]\s?1080)(?![a-z0-9])", RegexOption.IGNORE_CASE)
+    private val explicit2160pToken = Regex("(?<![a-z0-9])(2160[pi]|3840\s?[x×]\s?2160)(?![a-z0-9])", RegexOption.IGNORE_CASE)
+
     /** A resolution stated as a name ("1080p", "4K") or as a size ("1920x1080"), the better if both. */
     private fun exact(text: String?): StreamQuality? {
+        if (!text.isNullOrBlank() && explicit1080pToken.containsMatchIn(text) && !explicit2160pToken.containsMatchIn(text)) {
+            // A release naming "1080p" alongside "4K Remastered" or "UHD BluRay" (without "2160p") is a 1080p encode/remux.
+            return StreamQuality.P1080
+        }
         val named = bestMatch(text, exactPattern)
         val sized = text?.let { dimensions.findAll(it) }
             ?.mapNotNull { StreamQuality.fromVideoSize(it.groupValues[1].toInt(), it.groupValues[2].toInt()) }
