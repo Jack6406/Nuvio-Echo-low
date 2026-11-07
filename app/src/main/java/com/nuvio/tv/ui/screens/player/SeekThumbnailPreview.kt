@@ -184,9 +184,11 @@ internal fun SeekThumbnailDriver(engine: SeekThumbnailEngine, viewModel: PlayerV
             if (position == null) {
                 engine.stopScrubbing()
             } else {
-                engine.setSources(currentSources())
+                if (last == null) {
+                    runCatching { engine.setSources(currentSources()) }
+                }
                 val direction = last?.let { prev -> (position - prev).coerceIn(-1L, 1L).toInt() } ?: 0
-                engine.request(position, direction)
+                runCatching { engine.request(position, direction) }
             }
             last = position
         }

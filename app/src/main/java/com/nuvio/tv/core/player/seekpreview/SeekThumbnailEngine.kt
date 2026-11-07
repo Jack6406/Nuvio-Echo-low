@@ -287,22 +287,23 @@ class SeekThumbnailEngine(
             _available.value = if (next == null) false else null
         }
         // The old stream's decoder goes at once, so a new stream's player never waits for video memory.
-        handler.post { if (next != null) syncSource() else decoder.releaseCodec() }
+        handler.post { runCatching { if (next != null) syncSource() else decoder.releaseCodec() } }
     }
 
     /** Reads the index ahead of the first scrub. */
     fun prepare() {
         if (closed || wanted == null) return
         handler.post {
-            if (syncSource() != null && loadIndex() != null) {
-                // On 1 GB RAM Fire Sticks, skip continuous background keyframe decoding during playback
-                // so the hardware decoder and heap stay dedicated to the playing stream.
-                if (!com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) {
-                    fillPrepared = true
-                    fillWanted = true
-                    scheduleFill(FILL_START_MS)
+            try {
+                if (syncSource() != null && loadIndex() != null) {
+                    publishStatus()
                 }
-                publishStatus()
+            } catch (t: Throwable) {
+                if (t is OutOfMemoryError) {
+                    cache.evictAll()
+                    runCatching { decoder.releaseCodec() }
+                }
+                Log.w(TAG, "prepare failed", t)
             }
         }
     }
@@ -314,16 +315,25 @@ class SeekThumbnailEngine(
     fun warm(positionMs: Long) {
         if (closed || wanted == null || _available.value == false || scrubbing) return
         handler.post {
-            if (closed || scrubbing || syncSource() == null || loadIndex() == null) return@post
-            val offsets = if (stripSide > 0) WARM_STRIP_OFFSETS else WARM_OFFSETS
-            for (offset in offsets) {
-                if (closed || scrubbing || hasPending()) break
-                val target = positionMs + offset * PREFETCH_STEP_MS
-                if (target >= 0) serve(target, publish = false)
-            }
-            if (!scrubbing) {
-                handler.removeCallbacks(releaseDecoder)
-                handler.postDelayed(releaseDecoder, DECODER_IDLE_MS)
+            try {
+                if (closed || scrubbing || syncSource() == null || loadIndex() == null) return@post
+                val offsets = if (stripSide > 0) WARM_STRIP_OFFSETS else WARM_OFFSETS
+                for (offset in offsets) {
+                    if (closed || scrubbing || hasPending()) break
+                    val target = positionMs + offset * PREFETCH_STEP_MS
+                    if (target >= 0) serve(target, publish = false)
+                }
+            } catch (t: Throwable) {
+                if (t is OutOfMemoryError) {
+                    cache.evictAll()
+                    runCatching { decoder.releaseCodec() }
+                }
+                Log.w(TAG, "warm failed", t)
+            } finally {
+                if (!scrubbing) {
+                    handler.removeCallbacks(releaseDecoder)
+                    handler.postDelayed(releaseDecoder, DECODER_IDLE_MS)
+                }
             }
         }
     }
@@ -394,59 +404,65 @@ class SeekThumbnailEngine(
     }
 
     private fun drain() {
-        var lastTarget = -1L
-        var lastDirection = 0
-        while (!closed) {
-            val target: Long
-            val direction: Int
-            synchronized(lock) {
-                if (pendingTargetMs < 0) {
-                    draining = false
-                    target = -1L
-                    direction = 0
-                } else {
-                    target = pendingTargetMs
-                    direction = pendingDirection
-                    pendingTargetMs = -1L
+        try {
+            var lastTarget = -1L
+            var lastDirection = 0
+            while (!closed) {
+                val target: Long
+                val direction: Int
+                synchronized(lock) {
+                    if (pendingTargetMs < 0) {
+                        draining = false
+                        target = -1L
+                        direction = 0
+                    } else {
+                        target = pendingTargetMs
+                        direction = pendingDirection
+                        pendingTargetMs = -1L
+                    }
                 }
+                if (target < 0) break
+                if (lastTarget >= 0) previousTarget = lastTarget
+                // What's already made shows at once; downloads only fill the gaps.
+                ensureTitle()
+                publishScrub(target, scrubStep(target))
+                fetchAround(target, direction)
+                serve(target, publish = true)
+                lastTarget = target
+                lastDirection = direction
             }
-            if (target < 0) break
-            if (lastTarget >= 0) previousTarget = lastTarget
-            // What's already made shows at once; downloads only fill the gaps.
-            ensureTitle()
-            publishScrub(target, scrubStep(target))
-            fetchAround(target, direction)
-            serve(target, publish = true)
-            lastTarget = target
-            lastDirection = direction
-        }
-        if (!closed && scrubbing && lastTarget >= 0) {
-            val step = scrubStep(lastTarget)
-            val side = stripSide
-            // The filmstrip's other frames: the next one in the scrub direction, the one behind, then further out.
-            // Any new press stops this (serve() skips work while one is waiting).
-            if (side > 0) {
-                val ahead = if (lastDirection != 0) lastDirection else 1
-                for (distance in 1..side) {
-                    for (sign in intArrayOf(ahead, -ahead)) {
+            if (!closed && scrubbing && lastTarget >= 0) {
+                val step = scrubStep(lastTarget)
+                val side = stripSide
+                if (side > 0) {
+                    val ahead = if (lastDirection != 0) lastDirection else 1
+                    for (distance in 1..side) {
+                        for (sign in intArrayOf(ahead, -ahead)) {
+                            if (closed || !scrubbing || hasPending()) break
+                            val target = lastTarget + sign * distance * step
+                            if (target < 0) continue
+                            serve(target, publish = false)
+                            publishStrip(lastTarget, step)
+                        }
+                    }
+                }
+                if (lastDirection != 0) {
+                    for (ahead in side + 1..side + PREFETCH_AHEAD) {
                         if (closed || !scrubbing || hasPending()) break
-                        val target = lastTarget + sign * distance * step
-                        if (target < 0) continue
-                        serve(target, publish = false)
-                        publishStrip(lastTarget, step)
+                        serve(lastTarget + lastDirection * step * ahead, publish = false)
                     }
                 }
             }
-            // The next presses' thumbnails beyond the strip, fetched ahead in the scrub direction at the step the
-            // presses are actually moving, so they show at once.
-            if (lastDirection != 0) {
-                for (ahead in side + 1..side + PREFETCH_AHEAD) {
-                    if (closed || !scrubbing || hasPending()) break
-                    serve(lastTarget + lastDirection * step * ahead, publish = false)
-                }
+            previousTarget = lastTarget
+        } catch (t: Throwable) {
+            synchronized(lock) { draining = false }
+            if (t is OutOfMemoryError) {
+                cache.evictAll()
+                runCatching { decoder.releaseCodec() }
+                source?.let { if (isWanted(it)) markUnsupported(it, "out of memory", lastResort = true) }
             }
+            Log.w(TAG, "drain failed", t)
         }
-        previousTarget = lastTarget
     }
 
     /** The step between scrub presses, as measured from the last two; [PREFETCH_STEP_MS] until it's known. */
@@ -646,9 +662,13 @@ class SeekThumbnailEngine(
 
     /** The playing length changed: the kept thumbnails follow the cut, and a source kept across is checked now. */
     private fun onLengthChanged() {
-        if (closed || playerDurationMs <= 0) return
-        ensureTitle()
-        if (chain != null && index != null && lengthAtKeep >= 0L) loadIndex()
+        try {
+            if (closed || playerDurationMs <= 0) return
+            ensureTitle()
+            if (chain != null && index != null && lengthAtKeep >= 0L) loadIndex()
+        } catch (t: Throwable) {
+            Log.w(TAG, "onLengthChanged failed", t)
+        }
     }
 
     private fun clearStore() {
@@ -1052,6 +1072,12 @@ class SeekThumbnailEngine(
             }
         } catch (e: RuntimeException) {
             if (isWanted(src)) markUnsupported(src, "bad index (${e.javaClass.simpleName})")
+        } catch (t: Throwable) {
+            if (t is OutOfMemoryError) {
+                cache.evictAll()
+                runCatching { decoder.releaseCodec() }
+            }
+            if (isWanted(src)) markUnsupported(src, "index error (${t.javaClass.simpleName})", lastResort = t is OutOfMemoryError)
         }
         return null
     }
@@ -1211,15 +1237,10 @@ class SeekThumbnailEngine(
 
     private companion object {
         const val TAG = "SeekThumbs"
-        val THUMB_MAX_WIDTH: Int
-            get() = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) 256 else 384
-        val THUMB_MAX_HEIGHT: Int
-            get() = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) 144 else 216
-        /** About 30 thumbnails on normal devices; capped to 2 MB on 1 GB RAM Fire Sticks. */
-        val CACHE_BYTES: Int
-            get() = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) 2 * 1024 * 1024 else 10 * 1024 * 1024
-        val MAX_KEYFRAME_BYTES: Int
-            get() = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) 4 * 1024 * 1024 else 12 * 1024 * 1024
+        const val THUMB_MAX_WIDTH: Int = 256
+        const val THUMB_MAX_HEIGHT: Int = 144
+        const val CACHE_BYTES: Int = 2 * 1024 * 1024
+        const val MAX_KEYFRAME_BYTES: Int = 4 * 1024 * 1024
         const val DEFAULT_BUDGET_BYTES = 800L * 1024 * 1024
         const val MAX_FAILURES = 3
         const val BUSY_GIVE_UP_MS = 10_000L
@@ -1233,11 +1254,8 @@ class SeekThumbnailEngine(
         /** Thumbnails fetched ahead of the scrub: the next two presses. */
         const val PREFETCH_AHEAD = 2
         /** Keyframes downloaded at once (1 on 1 GB Fire Sticks to avoid heap spikes). */
-        val FETCH_THREADS: Int
-            get() = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) 1 else 4
-        /** Downloads kept waiting to be decoded before finished, unwanted ones are dropped. */
-        val MAX_INFLIGHT: Int
-            get() = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) 3 else 16
+        const val FETCH_THREADS: Int = 1
+        const val MAX_INFLIGHT: Int = 3
         /** Longest wait for a started download (the client gives up on a call after 20 s anyway). */
         const val FETCH_WAIT_S = 25L
         /** Warmed when the controls come up, in steps from the playhead: the first press forward, then back. */
@@ -1246,8 +1264,7 @@ class SeekThumbnailEngine(
         /** A made thumbnail stands in for one still coming when it's this close. */
         const val STAND_IN_MAX_MS = 5L * 60_000L
         /** Kept thumbnails (JPEG, ~10–20 KB each): room for every 10 s of a two-hour film. */
-        val STORE_MAX_BYTES: Long
-            get() = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) 3L * 1024 * 1024 else 14L * 1024 * 1024
+        const val STORE_MAX_BYTES: Long = 3L * 1024 * 1024
         const val JPEG_QUALITY = 80
         const val FILL_START_MS = 500L
         /** A thumbnail made this close to a position is shown for it (at most half a press away). */

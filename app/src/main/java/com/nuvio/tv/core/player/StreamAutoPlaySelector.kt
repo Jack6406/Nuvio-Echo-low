@@ -1,6 +1,6 @@
 package com.nuvio.tv.core.player
 
-import com.nuvio.tv.core.build.AppFeaturePolicy
+import com.nuvio.tv.core.config.AppFeaturePolicy
 import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.data.local.StreamAutoPlaySource
 import com.nuvio.tv.domain.model.AddonStreams
@@ -8,43 +8,41 @@ import com.nuvio.tv.domain.model.Stream
 import com.nuvio.tv.domain.model.StreamDebridCacheState
 
 object StreamAutoPlaySelector {
+
     fun orderAddonStreams(
-        streams: List<AddonStreams>,
-        installedOrder: List<String>
+        groups: List<AddonStreams>,
+        installedAddonOrder: List<String>
     ): List<AddonStreams> {
-        if (streams.isEmpty()) return streams
+        if (groups.isEmpty()) return emptyList()
 
-        val addonRankByName = HashMap<String, Int>(installedOrder.size)
-        installedOrder.forEachIndexed { index, addonName ->
-            if (addonName !in addonRankByName) {
-                addonRankByName[addonName] = index
-            }
-        }
+        val indexMap = installedAddonOrder
+            .mapIndexed { index, name -> name to index }
+            .toMap()
 
-        val (directDebridEntries, remainingEntries) = streams.partition {
-            it.streams.any { stream -> stream.isDirectDebrid() }
-        }
-        if (installedOrder.isEmpty()) return directDebridEntries + remainingEntries
-        val (addonEntries, pluginEntries) = remainingEntries.partition { it.addonName in addonRankByName }
-        val orderedAddons = addonEntries.sortedBy { addonRankByName.getValue(it.addonName) }
-        return directDebridEntries + orderedAddons + pluginEntries
+        return groups.withIndex()
+            .sortedWith(
+                compareBy<IndexedValue<AddonStreams>> {
+                    indexMap[it.value.addonName] ?: Int.MAX_VALUE
+                }.thenBy { it.index }
+            )
+            .map { it.value }
     }
 
     private fun isPlayable(stream: Stream): Boolean {
-        // External URL streams (e.g. error pages, web links) are not playable.
-        if (stream.isExternal()) return false
         when (stream.debridCacheStatus?.state) {
             StreamDebridCacheState.CHECKING,
-            StreamDebridCacheState.NOT_CACHED,
-            StreamDebridCacheState.UNKNOWN -> return false
+            StreamDebridCacheState.NOT_CACHED -> return false
             StreamDebridCacheState.CACHED,
+            StreamDebridCacheState.UNKNOWN,
             null -> Unit
         }
+
+        if (stream.isDirectDebrid()) {
+            return true
+        }
+
         return stream.getStreamUrl() != null ||
             stream.isTorrent() ||
-            stream.isDirectDebrid() ||
-            // A YouTube id is resolved to a playable URL on the device when the stream is played.
-            // Builds without in-app YouTube playback open the watch page instead, an external link.
             (AppFeaturePolicy.inAppTrailerPlaybackEnabled && stream.youTubeIdToResolve() != null)
     }
 
@@ -56,23 +54,25 @@ object StreamAutoPlaySelector {
         selectedAddons: Set<String>,
         selectedPlugins: Set<String>
     ): List<Stream> {
-        val effectiveSource = if (!AppFeaturePolicy.pluginsEnabled && source == StreamAutoPlaySource.ENABLED_PLUGINS_ONLY) {
-            StreamAutoPlaySource.INSTALLED_ADDONS_ONLY
-        } else {
-            source
-        }
-
-        val sourceScopedStreams = when (effectiveSource) {
+        val bySource = when (source) {
             StreamAutoPlaySource.ALL_SOURCES -> streams
-            StreamAutoPlaySource.INSTALLED_ADDONS_ONLY -> streams.filter { it.addonName in installedAddonNames }
-            StreamAutoPlaySource.ENABLED_PLUGINS_ONLY -> streams.filter { it.addonName !in installedAddonNames }
+            StreamAutoPlaySource.INSTALLED_ADDONS_ONLY ->
+                streams.filter { it.addonName in installedAddonNames }
+            StreamAutoPlaySource.ENABLED_PLUGINS_ONLY ->
+                streams.filter { it.addonName !in installedAddonNames }
         }
-        return sourceScopedStreams.filter { stream ->
+        return bySource.filter { stream ->
             val isAddonStream = stream.addonName in installedAddonNames
             if (isAddonStream) {
-                selectedAddons.isEmpty() || stream.addonName in selectedAddons
+                when (source) {
+                    StreamAutoPlaySource.ENABLED_PLUGINS_ONLY -> false
+                    else -> selectedAddons.isEmpty() || stream.addonName in selectedAddons
+                }
             } else {
-                selectedPlugins.isEmpty() || stream.addonName in selectedPlugins
+                when (source) {
+                    StreamAutoPlaySource.INSTALLED_ADDONS_ONLY -> false
+                    else -> selectedPlugins.isEmpty() || stream.addonName in selectedPlugins
+                }
             }
         }
     }
@@ -105,11 +105,10 @@ object StreamAutoPlaySelector {
         source: StreamAutoPlaySource,
         installedAddonNames: Set<String>,
         selectedAddons: Set<String>,
-        selectedPlugins: Set<String>,
+        selectedPlugins: Set<String> = emptySet(),
         preferredBingeGroup: String? = null,
-        preferBingeGroupInSelection: Boolean = false,
+        preferBingeGroupInSelection: Boolean = true,
         bingeGroupOnly: Boolean = false,
-        /** Preferred-sources pills (AutoPlayPreferences); when any is picked they're used instead of [regexPattern]. */
         preferences: Set<String> = emptySet()
     ): Stream? {
         if (streams.isEmpty()) return null
@@ -121,7 +120,6 @@ object StreamAutoPlaySelector {
         val playableCandidates = candidateStreams.filter { isPlayable(it) }
         if (playableCandidates.isEmpty()) return null
 
-        // Do not allow early bingeGroupOnly checks to lock in a smaller stream before all addons finish.
         if (bingeGroupOnly) return null
 
         if (mode == StreamAutoPlayMode.MANUAL) return null
@@ -129,7 +127,6 @@ object StreamAutoPlaySelector {
         val effectivePrefs = (preferences - AutoPlayPreferences.Pill.SMALLEST.key) +
             setOf(AutoPlayPreferences.Pill.Q1080.key, AutoPlayPreferences.Pill.LARGEST.key)
 
-        // Always rank all playable candidates by cached debrid -> 1080p -> largest byte size descending!
         return AutoPlayPreferences.rank(playableCandidates, effectivePrefs).firstOrNull()
     }
 }

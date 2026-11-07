@@ -163,13 +163,7 @@ internal fun HeroWindow(
             // On 1 GB RAM Fire Sticks, only prefetch the immediate next slide instead of all 20 slides at once.
             listOfNotNull(slides.getOrNull((index + 1) % slides.size)?.backdrop)
         } else {
-            // Prefetch a sliding window (next 2 slides + previous slide) so cold startup bandwidth and decoder threads
-            // prioritize visible row posters & logos while keeping adjacent hero transitions instant.
-            listOfNotNull(
-                slides.getOrNull((index + 1) % slides.size)?.backdrop,
-                slides.getOrNull((index + 2) % slides.size)?.backdrop,
-                slides.getOrNull((index - 1 + slides.size) % slides.size)?.backdrop
-            ).distinct()
+            slides.mapNotNull { it.backdrop }.distinct()
         }
         urlsToPrefetch.forEach { url ->
             prefetchContext.imageLoader.enqueue(

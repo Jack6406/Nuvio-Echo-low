@@ -32,7 +32,7 @@ object BetaFeatures {
  * the player's usual 2.5–5s.
  */
 object FastPlaybackStart {
-    const val START_BUFFER_MS = 600
+    const val START_BUFFER_MS = 1_500
 
     fun isEnabled(context: Context): Boolean = BetaFeatures.settings(context).fastPlaybackStart
 

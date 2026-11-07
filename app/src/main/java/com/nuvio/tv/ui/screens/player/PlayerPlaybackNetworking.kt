@@ -5,9 +5,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import com.nuvio.tv.core.network.IPv4FirstDns
-import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.SecureRandom
@@ -22,16 +20,6 @@ import javax.net.ssl.X509TrustManager
 
 internal object PlayerPlaybackNetworking {
     private const val LOOPBACK_READ_TIMEOUT_SECONDS = 65L
-
-    /** Shared connection pool across playback clients so pre-warmed Debrid/CDN sockets are reused by ExoPlayer. */
-    internal val sharedConnectionPool = ConnectionPool(16, 5, TimeUnit.MINUTES)
-
-    private val sharedDispatcher by lazy {
-        okhttp3.Dispatcher().apply {
-            maxRequests = 64
-            maxRequestsPerHost = 32
-        }
-    }
 
     private val trustAllManager = object : X509TrustManager {
         override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
@@ -54,14 +42,17 @@ internal object PlayerPlaybackNetworking {
      * or untrusted local media servers (e.g. self-signed WebDAV / Plex / Jellyfin).
      */
     internal val trustAllPlaybackHttpClient: OkHttpClient by lazy {
+        val dispatcher = okhttp3.Dispatcher().apply {
+            maxRequests = 64
+            maxRequestsPerHost = 32
+        }
         OkHttpClient.Builder()
-            .dispatcher(sharedDispatcher)
-            .connectionPool(sharedConnectionPool)
+            .dispatcher(dispatcher)
             .dns(IPv4FirstDns())
             .eventListenerFactory(PlaybackConnectionEvents)
             .sslSocketFactory(sslContext.socketFactory, trustAllManager)
             .hostnameVerifier(playbackHostnameVerifier)
-            .connectTimeout(12, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
             .followRedirects(true)
@@ -76,12 +67,15 @@ internal object PlayerPlaybackNetworking {
      * occurs on self-signed local media servers.
      */
     internal val playbackHttpClient: OkHttpClient by lazy {
+        val dispatcher = okhttp3.Dispatcher().apply {
+            maxRequests = 64
+            maxRequestsPerHost = 32
+        }
         OkHttpClient.Builder()
-            .dispatcher(sharedDispatcher)
-            .connectionPool(sharedConnectionPool)
+            .dispatcher(dispatcher)
             .dns(IPv4FirstDns())
             .eventListenerFactory(PlaybackConnectionEvents)
-            .connectTimeout(12, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
             .followRedirects(true)
@@ -97,31 +91,6 @@ internal object PlayerPlaybackNetworking {
                 }
             }
             .build()
-    }
-
-    /**
-     * Pre-warms DNS, TCP, and TLS connection to the stream host in the background while
-     * player extractors and codecs are being initialized so ExoPlayer's first read reuses an open socket.
-     */
-    fun warmUpStreamConnection(url: String, headers: Map<String, String> = emptyMap()) {
-        if (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true)) return
-        runCatching {
-            val requestBuilder = Request.Builder()
-                .url(url)
-                .header("Range", "bytes=0-0")
-                .header("User-Agent", headers["User-Agent"] ?: PlayerMediaSourceFactory.DEFAULT_USER_AGENT)
-            headers.forEach { (key, value) ->
-                if (!key.equals("Range", ignoreCase = true) && !key.equals("User-Agent", ignoreCase = true)) {
-                    requestBuilder.header(key, value)
-                }
-            }
-            playbackHttpClient.newCall(requestBuilder.build()).enqueue(object : okhttp3.Callback {
-                override fun onFailure(call: okhttp3.Call, e: java.io.IOException) = Unit
-                override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
-                    runCatching { response.close() }
-                }
-            })
-        }
     }
 
     fun createHttpClient(

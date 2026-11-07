@@ -75,7 +75,7 @@ object NuvioExoPlayerPerformanceHelper {
     var maxBufferMs: Int = DEFAULT_NUVIO_MAX_BUFFER_MS
 
     @Volatile
-    var bufferForPlaybackMs: Int = 800
+    var bufferForPlaybackMs: Int = 2_500
 
     @Volatile
     var bufferForPlaybackAfterRebufferMs: Int = 3_000
@@ -106,7 +106,7 @@ object NuvioExoPlayerPerformanceHelper {
         
         minBufferMs = if (customBuffers) bufferSettings.minBufferMs else DEFAULT_NUVIO_MIN_BUFFER_MS
         maxBufferMs = if (customBuffers) bufferSettings.maxBufferMs else DEFAULT_NUVIO_MAX_BUFFER_MS
-        bufferForPlaybackMs = if (customBuffers) bufferSettings.bufferForPlaybackMs.coerceAtMost(1_200) else 800
+        bufferForPlaybackMs = if (customBuffers) bufferSettings.bufferForPlaybackMs else 2_500
         bufferForPlaybackAfterRebufferMs = if (customBuffers) bufferSettings.bufferForPlaybackAfterRebufferMs else 3_000
         backBufferMs = if (customBuffers) bufferSettings.backBufferDurationMs else DEFAULT_NUVIO_BACK_BUFFER_MS
 
@@ -358,13 +358,9 @@ object NuvioExoPlayerPerformanceHelper {
      * performance mode is off.
      */
     fun buildScrubbingParams(): ScrubbingModeParameters? {
-        if (!enabled) return null
-        return ScrubbingModeParameters.Builder()
-            .setDisabledTrackTypes(setOf(C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_METADATA))
-            .setShouldIncreaseCodecOperatingRate(true)
-            .setAllowSkippingMediaCodecFlush(true)
-            .setShouldEnableDynamicScheduling(true)
-            .build()
+        // Returning null avoids disabling/re-enabling TRACK_TYPE_AUDIO and skipping MediaCodec.flush()
+        // on every seek step, which crashes hardware decoders on high-bitrate 1080p MKV/Remux files.
+        return null
     }
 
     /**

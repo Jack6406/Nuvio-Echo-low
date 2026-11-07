@@ -26,7 +26,6 @@ import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
@@ -50,8 +49,6 @@ private const val WASH_TOP_LIGHT = 1.0f
 private const val WASH_BOTTOM_LIGHT = 0.62f
 private const val WASH_SATURATION = 1.25f
 private const val WASH_CROSSFADE_MS = 1_200
-/** Debounce before decoding/blurring uncached backdrops during rapid D-pad carousel navigation. */
-private const val WASH_DEBOUNCE_MS = 150L
 
 private val washCache = object : LinkedHashMap<String, ImageBitmap>(16, 0.75f, true) {
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?) =
@@ -80,20 +77,14 @@ internal fun AmbientPageWash(url: String?, modifier: Modifier = Modifier) {
     }
     LaunchedEffect(url) {
         if (url.isNullOrBlank()) return@LaunchedEffect
-        val cached = synchronized(washCache) { washCache[url] }
-        val next = if (cached != null) {
-            cached
-        } else {
-            delay(WASH_DEBOUNCE_MS)
-            withContext(Dispatchers.IO) {
-                val request = ImageRequest.Builder(context)
-                    .data(url)
-                    .allowHardware(false)
-                    .size(coil3.size.Size(WASH_READ_WIDTH, WASH_READ_HEIGHT))
-                    .build()
-                val bitmap = ((context.imageLoader.execute(request) as? SuccessResult)?.image as? BitmapImage)?.bitmap
-                bitmap?.let(::washOf)?.also { synchronized(washCache) { washCache[url] = it } }
-            }
+        val next = synchronized(washCache) { washCache[url] } ?: withContext(Dispatchers.IO) {
+            val request = ImageRequest.Builder(context)
+                .data(url)
+                .allowHardware(false)
+                .size(coil3.size.Size(WASH_READ_WIDTH, WASH_READ_HEIGHT))
+                .build()
+            val bitmap = ((context.imageLoader.execute(request) as? SuccessResult)?.image as? BitmapImage)?.bitmap
+            bitmap?.let(::washOf)?.also { synchronized(washCache) { washCache[url] = it } }
         } ?: return@LaunchedEffect
         if (next === shown) return@LaunchedEffect
         previous = shown
@@ -191,9 +182,9 @@ private fun washOf(source: Bitmap): ImageBitmap? {
     }
     val hsv = FloatArray(3)
     var valueSum = 0f
-    // HSV Value (V) is max(R, G, B) / 255f — compute directly to avoid 2,304 redundant JNI RGBToHSV calls.
     for (i in 0 until w * h) {
-        valueSum += maxOf(r[i], g[i], b[i]) / 255f
+        android.graphics.Color.RGBToHSV(r[i].toInt(), g[i].toInt(), b[i].toInt(), hsv)
+        valueSum += hsv[2]
     }
     val gain = (WASH_MEAN_VALUE / (valueSum / (w * h)).coerceAtLeast(0.01f)).coerceAtMost(WASH_MAX_LIFT)
     for (y in 0 until h) {
