@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -28,7 +29,9 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Shuffle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -56,6 +59,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.nuvio.tv.LocalContentFocusRequester
 import com.nuvio.tv.R
@@ -70,7 +74,7 @@ import com.nuvio.tv.ui.theme.NuvioTheme
 import kotlinx.coroutines.delay
 
 private enum class LibraryTab { Classic, Bins, Cloud }
-private enum class ClassicMediaFilter { ALL, MOVIES, SERIES }
+private enum class ClassicMediaFilter { ALL, MOVIES, SERIES, WATCHED_HISTORY }
 
 private sealed interface LibraryOverlay {
     data class Sort(val anchor: Rect) : LibraryOverlay
@@ -93,8 +97,8 @@ private val ScreenPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 28.d
 private val GridGap = 24.dp
 
 /**
- * The Library: Classic Library (direct 2:3 Portrait Poster Grid with All / Movies / Series filters),
- * Bins (custom folders), and Cloud.
+ * The Library: Unified 2:3 Portrait Poster Grid with All / Movies / Series / Watched History filters
+ * and a Random Movie quick-select pill.
  */
 @Composable
 fun LibraryScreen(
@@ -105,7 +109,6 @@ fun LibraryScreen(
 ) {
     val state by binsViewModel.uiState.collectAsState()
     val message by binsViewModel.message.collectAsState()
-    val cloudState by cloudViewModel.uiState.collectAsState()
     var tab by rememberSaveable { mutableStateOf(LibraryTab.Classic) }
     var classicFilter by rememberSaveable { mutableStateOf(ClassicMediaFilter.ALL) }
     var selectedGenre by rememberSaveable { mutableStateOf<String?>(null) }
@@ -120,12 +123,10 @@ fun LibraryScreen(
     var refocusAfterSwap by remember { mutableStateOf<String?>(null) }
     val focus = remember { FocusKeys() }
     val classicGrid = rememberLazyGridState()
-    val binsGrid = rememberLazyGridState()
-    val titlesGrid = remember(state.openBin?.id) { LazyGridState() }
     val contentFocus = LocalContentFocusRequester.current
 
-    val sourcePoolForFilters = remember(tab, state.allTitles, state.openTitles, state.openBin) {
-        if (tab == LibraryTab.Bins && state.openBin != null) state.openTitles else state.allTitles
+    val sourcePoolForFilters = remember(classicFilter, state.allTitles, state.watchedHistoryTitles) {
+        if (classicFilter == ClassicMediaFilter.WATCHED_HISTORY) state.watchedHistoryTitles else state.allTitles
     }
 
     val availableGenres = remember(sourcePoolForFilters) {
@@ -181,7 +182,7 @@ fun LibraryScreen(
         return true
     }
 
-    val filteredClassicTitles = remember(state.allTitles, classicFilter, selectedGenre, selectedYear) {
+    val filteredClassicTitles = remember(state.allTitles, state.watchedHistoryTitles, classicFilter, selectedGenre, selectedYear) {
         val mediaFiltered = when (classicFilter) {
             ClassicMediaFilter.ALL -> state.allTitles
             ClassicMediaFilter.MOVIES -> state.allTitles.filter {
@@ -190,12 +191,9 @@ fun LibraryScreen(
             ClassicMediaFilter.SERIES -> state.allTitles.filter {
                 it.entry.type.equals("series", true) || it.entry.type.equals("tv", true)
             }
+            ClassicMediaFilter.WATCHED_HISTORY -> state.watchedHistoryTitles
         }
         mediaFiltered.filter(::matchesGenreAndYear)
-    }
-
-    val filteredOpenBinTitles = remember(state.openTitles, selectedGenre, selectedYear) {
-        state.openTitles.filter(::matchesGenreAndYear)
     }
 
     fun local(rect: Rect): Rect = rect.translate(-rootOffset)
@@ -204,37 +202,18 @@ fun LibraryScreen(
         if (returnTo != null) pendingFocus = returnTo
     }
 
-    BackHandler(enabled = overlay == null && tab == LibraryTab.Bins && (state.reordering || state.openBin != null)) {
-        if (!binsViewModel.backInReorder()) {
-            val closing = state.openBin
-            binsViewModel.closeBin()
-            if (closing != null) pendingFocus = "bin:${closing.id}"
-        }
-    }
-
     LaunchedEffect(state.loaded) {
         if (!state.loaded || pendingFocus != null) return@LaunchedEffect
-        pendingFocus = lastFocused?.takeIf { tab != LibraryTab.Cloud }
-            ?: when (tab) {
-                LibraryTab.Classic -> filteredClassicTitles.firstOrNull()?.let { "classic:${it.entry.key}" } ?: "pill:classic"
-                LibraryTab.Cloud -> "pill:cloud"
-                LibraryTab.Bins -> if (state.openBin != null) {
-                    state.openTitles.firstOrNull()?.let { "title:${it.entry.key}" } ?: "pill:sort"
-                } else {
-                    state.bins.firstOrNull()?.let { "bin:${it.id}" } ?: "pill:plus"
-                }
-            }
+        pendingFocus = lastFocused
+            ?: filteredClassicTitles.firstOrNull()?.let { "classic:${it.entry.key}" }
+            ?: "pill:filter_all"
     }
 
-    LaunchedEffect(pendingFocus, state.bins, state.openTitles, filteredClassicTitles, tab) {
+    LaunchedEffect(pendingFocus, filteredClassicTitles) {
         val key = pendingFocus ?: return@LaunchedEffect
         val (grid, index) = when {
             key.startsWith("classic:") ->
                 classicGrid to filteredClassicTitles.indexOfFirst { it.entry.key == key.removePrefix("classic:") }.let { if (it < 0) -1 else it + 1 }
-            key.startsWith("bin:") || key.startsWith("star:") ->
-                binsGrid to state.bins.indexOfFirst { it.id == key.substringAfter(':') }.let { if (it < 0) -1 else it + 1 }
-            key.startsWith("title:") ->
-                titlesGrid to state.openTitles.indexOfFirst { it.entry.key == key.removePrefix("title:") }.let { if (it < 0) -1 else it + 1 }
             else -> null to -1
         }
         if (grid != null && index > 0 && grid.layoutInfo.visibleItemsInfo.none { it.index == index }) {
@@ -259,7 +238,6 @@ fun LibraryScreen(
     val sortLabel = sortLabel(state.sort)
     val header: @Composable () -> Unit = {
         LibraryHeader(
-            tab = tab,
             classicFilter = classicFilter,
             onClassicFilter = { classicFilter = it },
             selectedGenre = selectedGenre,
@@ -268,22 +246,16 @@ fun LibraryScreen(
                 selectedGenre = null
                 selectedYear = null
             },
-            state = state,
             sortLabel = sortLabel,
             focus = focus,
-            cloudRefreshing = cloudState.cloudLibrary.isRefreshing,
-            onTab = { selected ->
-                if (selected != tab) {
-                    tab = selected
-                    pendingFocus = when (selected) {
-                        LibraryTab.Classic -> "pill:classic"
-                        LibraryTab.Bins -> "pill:bins"
-                        LibraryTab.Cloud -> "pill:cloud"
+            onRandomMovie = {
+                binsViewModel.pickRandomMovie { picked ->
+                    val owningBin = state.bins.firstOrNull { b -> b.entries.any { it.key == picked.entry.key } }
+                    if (owningBin != null) {
+                        binsViewModel.onTitleOpened(owningBin, picked)
                     }
-                } else if (selected == LibraryTab.Bins && state.openBin != null) {
-                    val closing = state.openBin
-                    binsViewModel.closeBin()
-                    pendingFocus = closing?.let { "bin:${it.id}" }
+                    HeroBackdropState.update(binsViewModel.cachedBackdrop(picked))
+                    onNavigateToDetail(picked.entry.id, picked.entry.type, picked.entry.addonBaseUrl)
                 }
             },
             onSortBounds = { sortBounds = it },
@@ -291,11 +263,7 @@ fun LibraryScreen(
             onGenreBounds = { genreBounds = it },
             onGenre = { overlay = LibraryOverlay.GenreFilter(local(genreBounds)) },
             onYearBounds = { yearBounds = it },
-            onYear = { overlay = LibraryOverlay.YearFilter(local(yearBounds)) },
-            onCustomOrder = { binsViewModel.toggleReorder() },
-            onCreate = { overlay = LibraryOverlay.Create },
-            onRefresh = cloudViewModel::refresh,
-            onFocused = { lastFocused = it }
+            onYear = { overlay = LibraryOverlay.YearFilter(local(yearBounds)) }
         )
     }
 
@@ -338,102 +306,38 @@ fun LibraryScreen(
                 .focusRequester(contentFocus)
                 .focusProperties {
                     onEnter = {
-                        val key = pendingFocus ?: lastFocused?.takeIf { tab != LibraryTab.Cloud } ?: when (tab) {
-                            LibraryTab.Classic -> filteredClassicTitles.firstOrNull()?.let { "classic:${it.entry.key}" } ?: "pill:classic"
-                            LibraryTab.Cloud -> "pill:cloud"
-                            LibraryTab.Bins -> if (state.openBin != null) {
-                                state.openTitles.firstOrNull()?.let { "title:${it.entry.key}" } ?: "pill:sort"
-                            } else {
-                                state.bins.firstOrNull()?.let { "bin:${it.id}" } ?: "pill:plus"
-                            }
-                        }
+                        val key = pendingFocus ?: lastFocused
+                            ?: filteredClassicTitles.firstOrNull()?.let { "classic:${it.entry.key}" }
+                            ?: "pill:filter_all"
                         runCatching { focus[key].requestFocus() }
                     }
                 }
                 .focusGroup()
         ) {
-            when {
-                tab == LibraryTab.Cloud -> CloudLibraryContent(
-                    viewModel = cloudViewModel,
-                    header = header,
-                    upFocusRequester = focus["pill:cloud"],
-                    onPlaybackResolved = onCloudPlaybackResolved,
-                    contentPadding = ScreenPadding,
-                    modifier = Modifier.fillMaxSize()
-                )
-                tab == LibraryTab.Classic -> ClassicLibraryPortraitGrid(
-                    titles = filteredClassicTitles,
-                    state = state,
-                    gridState = classicGrid,
-                    header = header,
-                    focus = focus,
-                    onFocused = { lastFocused = it },
-                    onClick = { title ->
-                        val owningBin = state.bins.firstOrNull { b -> b.entries.any { it.key == title.entry.key } }
-                        if (owningBin != null) {
-                            binsViewModel.onTitleOpened(owningBin, title)
-                        }
-                        HeroBackdropState.update(binsViewModel.cachedBackdrop(title))
-                        onNavigateToDetail(title.entry.id, title.entry.type, title.entry.addonBaseUrl)
-                    },
-                    onLongClick = { title, anchor ->
-                        val owningBin = state.bins.firstOrNull { b -> b.entries.any { it.key == title.entry.key } }
-                        if (owningBin != null) {
-                            overlay = LibraryOverlay.TitleOptions(owningBin, title, local(anchor))
-                        }
-                    },
-                    onPrefetch = { binsViewModel.prefetch(it.entry) }
-                )
-                state.openBin != null -> {
-                    val bin = state.openBin!!
-                    BinTitlesGrid(
-                        bin = bin,
-                        state = state.copy(openTitles = filteredOpenBinTitles),
-                        gridState = titlesGrid,
-                        header = header,
-                        focus = focus,
-                        onFocused = { lastFocused = it },
-                        onClick = { title ->
-                            if (state.reordering) {
-                                val held = state.picked
-                                binsViewModel.pick(title.entry.key)
-                                if (held != null && held != title.entry.key) refocusAfterSwap = "title:$held"
-                            } else {
-                                binsViewModel.onTitleOpened(bin, title)
-                                HeroBackdropState.update(binsViewModel.cachedBackdrop(title))
-                                onNavigateToDetail(title.entry.id, title.entry.type, title.entry.addonBaseUrl)
-                            }
-                        },
-                        onLongClick = { title, anchor ->
-                            if (!state.reordering) overlay = LibraryOverlay.TitleOptions(bin, title, local(anchor))
-                        },
-                        onPrefetch = { binsViewModel.prefetch(it.entry) }
-                    )
-                }
-                else -> BinsGrid(
-                    state = state,
-                    gridState = binsGrid,
-                    header = header,
-                    focus = focus,
-                    onFocused = { lastFocused = it },
-                    onClick = { bin ->
-                        if (state.reordering) {
-                            val held = state.picked
-                            binsViewModel.pick(bin.id)
-                            if (held != null && held != bin.id) refocusAfterSwap = "bin:$held"
-                        } else {
-                            binsViewModel.openBin(bin)
-                            pendingFocus = state.bins.firstOrNull { it.id == bin.id }?.entries?.let { entries ->
-                                com.nuvio.tv.core.bins.BinsReducer.sortedEntries(entries, state.sort).firstOrNull()?.key?.let { "title:$it" }
-                            } ?: "pill:sort"
-                        }
-                    },
-                    onLongClick = { bin, anchor ->
-                        if (!state.reordering) overlay = LibraryOverlay.BinOptions(bin, local(anchor))
-                    },
-                    onStar = { binsViewModel.toggleStar(it) }
-                )
-            }
+            ClassicLibraryPortraitGrid(
+                titles = filteredClassicTitles,
+                isWatchedHistoryTab = classicFilter == ClassicMediaFilter.WATCHED_HISTORY,
+                state = state,
+                gridState = classicGrid,
+                header = header,
+                focus = focus,
+                onFocused = { lastFocused = it },
+                onClick = { title ->
+                    val owningBin = state.bins.firstOrNull { b -> b.entries.any { it.key == title.entry.key } }
+                    if (owningBin != null) {
+                        binsViewModel.onTitleOpened(owningBin, title)
+                    }
+                    HeroBackdropState.update(binsViewModel.cachedBackdrop(title))
+                    onNavigateToDetail(title.entry.id, title.entry.type, title.entry.addonBaseUrl)
+                },
+                onLongClick = { title, anchor ->
+                    val owningBin = state.bins.firstOrNull { b -> b.entries.any { it.key == title.entry.key } }
+                    if (owningBin != null) {
+                        overlay = LibraryOverlay.TitleOptions(owningBin, title, local(anchor))
+                    }
+                },
+                onPrefetch = { binsViewModel.prefetch(it.entry) }
+            )
         }
 
         when (val current = overlay) {
@@ -484,24 +388,6 @@ fun LibraryScreen(
                     onDismiss = { dismissOverlay("pill:year") }
                 )
             }
-            is LibraryOverlay.BinOptions -> {
-                val bin = current.bin
-                BinPillMenu(
-                    anchor = current.anchor,
-                    title = bin.name,
-                    items = listOf(
-                        BinMenuItem(stringResource(if (bin.starred) R.string.bins_menu_unstar else R.string.bins_menu_star)) {
-                            binsViewModel.toggleStar(bin)
-                            dismissOverlay("bin:${bin.id}")
-                        },
-                        BinMenuItem(stringResource(R.string.bins_menu_rename)) { overlay = LibraryOverlay.Rename(bin) },
-                        BinMenuItem(stringResource(R.string.bins_menu_delete)) { overlay = LibraryOverlay.Delete(bin) }
-                    ),
-                    initialIndex = 0,
-                    openedByHold = true,
-                    onDismiss = { dismissOverlay("bin:${bin.id}") }
-                )
-            }
             is LibraryOverlay.TitleOptions -> BinPillMenu(
                 anchor = current.anchor,
                 title = current.title.entry.name,
@@ -512,47 +398,21 @@ fun LibraryScreen(
                         onNavigateToDetail(current.title.entry.id, current.title.entry.type, current.title.entry.addonBaseUrl)
                     },
                     BinMenuItem(stringResource(R.string.bins_title_remove, current.bin.name)) {
-                        val titles = if (tab == LibraryTab.Classic) filteredClassicTitles else state.openTitles
-                        val prefix = if (tab == LibraryTab.Classic) "classic:" else "title:"
+                        val titles = filteredClassicTitles
+                        val prefix = "classic:"
                         val at = titles.indexOfFirst { it.entry.key == current.title.entry.key }
                         val next = titles.getOrNull(at + 1) ?: titles.getOrNull(at - 1)
                         binsViewModel.removeTitle(current.bin, current.title)
-                        dismissOverlay(next?.let { "$prefix${it.entry.key}" } ?: "pill:sort")
+                        dismissOverlay(next?.let { "$prefix${it.entry.key}" } ?: "pill:filter_all")
                     }
                 ),
                 initialIndex = 0,
                 openedByHold = true,
                 onDismiss = {
-                    val prefix = if (tab == LibraryTab.Classic) "classic:" else "title:"
-                    dismissOverlay("$prefix${current.title.entry.key}")
+                    dismissOverlay("classic:${current.title.entry.key}")
                 }
             )
-            LibraryOverlay.Create -> BinNameDialog(
-                title = stringResource(R.string.bins_name_title),
-                initial = "",
-                confirmLabel = stringResource(R.string.bins_create_button),
-                onConfirm = { name -> binsViewModel.createBin(name) },
-                onDismiss = { dismissOverlay("pill:plus") }
-            )
-            is LibraryOverlay.Rename -> BinNameDialog(
-                title = stringResource(R.string.bins_rename_title),
-                initial = current.bin.name,
-                confirmLabel = stringResource(R.string.action_save),
-                onConfirm = { name -> binsViewModel.renameBin(current.bin, name) },
-                onDismiss = { dismissOverlay("bin:${current.bin.id}") }
-            )
-            is LibraryOverlay.Delete -> DeleteBinDialog(
-                bin = current.bin,
-                onConfirm = {
-                    val bins = state.bins
-                    val at = bins.indexOfFirst { it.id == current.bin.id }
-                    val next = bins.getOrNull(at + 1) ?: bins.getOrNull(at - 1)
-                    binsViewModel.deleteBin(current.bin)
-                    dismissOverlay(next?.let { "bin:${it.id}" } ?: "pill:plus")
-                },
-                onDismiss = { dismissOverlay("bin:${current.bin.id}") }
-            )
-            null -> Unit
+            else -> Unit
         }
 
         BinsToast(message, Modifier.align(Alignment.BottomCenter).padding(bottom = 28.dp))
@@ -561,27 +421,20 @@ fun LibraryScreen(
 
 @Composable
 private fun LibraryHeader(
-    tab: LibraryTab,
     classicFilter: ClassicMediaFilter,
     onClassicFilter: (ClassicMediaFilter) -> Unit,
     selectedGenre: String?,
     selectedYear: String?,
     onClearFilters: () -> Unit,
-    state: BinsUiState,
     sortLabel: String,
     focus: FocusKeys,
-    cloudRefreshing: Boolean,
-    onTab: (LibraryTab) -> Unit,
+    onRandomMovie: () -> Unit,
     onSortBounds: (Rect) -> Unit,
     onSort: () -> Unit,
     onGenreBounds: (Rect) -> Unit,
     onGenre: () -> Unit,
     onYearBounds: (Rect) -> Unit,
-    onYear: () -> Unit,
-    onCustomOrder: () -> Unit,
-    onCreate: () -> Unit,
-    onRefresh: () -> Unit,
-    onFocused: (String) -> Unit
+    onYear: () -> Unit
 ) {
     Column(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
         Text(stringResource(R.string.library_title), color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Medium)
@@ -589,83 +442,73 @@ private fun LibraryHeader(
         val endOfRow = Modifier.focusProperties { right = FocusRequester.Cancel }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             BinsTextPill(
-                "Library", selected = tab == LibraryTab.Classic, requester = focus["pill:classic"],
-                onClick = { onTab(LibraryTab.Classic) }
+                "All",
+                selected = classicFilter == ClassicMediaFilter.ALL,
+                requester = focus["pill:filter_all"],
+                onClick = { onClassicFilter(ClassicMediaFilter.ALL) }
             )
             BinsTextPill(
-                stringResource(R.string.bins_tab), selected = tab == LibraryTab.Bins, requester = focus["pill:bins"],
-                onClick = { onTab(LibraryTab.Bins) }
+                "Movies",
+                selected = classicFilter == ClassicMediaFilter.MOVIES,
+                requester = focus["pill:filter_movies"],
+                onClick = { onClassicFilter(ClassicMediaFilter.MOVIES) }
             )
             BinsTextPill(
-                stringResource(R.string.library_source_cloud), selected = tab == LibraryTab.Cloud, requester = focus["pill:cloud"],
-                onClick = { onTab(LibraryTab.Cloud) }
+                "Series",
+                selected = classicFilter == ClassicMediaFilter.SERIES,
+                requester = focus["pill:filter_series"],
+                onClick = { onClassicFilter(ClassicMediaFilter.SERIES) }
             )
-            if (tab == LibraryTab.Classic) {
-                BinsTextPill(
-                    "All", selected = classicFilter == ClassicMediaFilter.ALL, requester = focus["pill:filter_all"],
-                    onClick = { onClassicFilter(ClassicMediaFilter.ALL) }
+            BinsTextPill(
+                "Watched History",
+                selected = classicFilter == ClassicMediaFilter.WATCHED_HISTORY,
+                requester = focus["pill:watched_history"],
+                onClick = { onClassicFilter(ClassicMediaFilter.WATCHED_HISTORY) }
+            ) { color ->
+                Icon(
+                    imageVector = Icons.Outlined.History,
+                    contentDescription = "Watched History",
+                    tint = color,
+                    modifier = Modifier.size(17.dp)
                 )
-                BinsTextPill(
-                    "Movies", selected = classicFilter == ClassicMediaFilter.MOVIES, requester = focus["pill:filter_movies"],
-                    onClick = { onClassicFilter(ClassicMediaFilter.MOVIES) }
+                Spacer(Modifier.width(6.dp))
+                Text("Watched History", color = color, fontSize = 15.sp, maxLines = 1)
+            }
+            BinsTextPill(
+                "Random Movie",
+                selected = false,
+                requester = focus["pill:random_movie"],
+                onClick = onRandomMovie
+            ) { color ->
+                Icon(
+                    imageVector = Icons.Outlined.Shuffle,
+                    contentDescription = "Random Movie",
+                    tint = color,
+                    modifier = Modifier.size(17.dp)
                 )
-                BinsTextPill(
-                    "Series", selected = classicFilter == ClassicMediaFilter.SERIES, requester = focus["pill:filter_series"],
-                    onClick = { onClassicFilter(ClassicMediaFilter.SERIES) }
-                )
-                BinsSortPill("Genre: ${selectedGenre ?: "All"}", focus["pill:genre"], onClick = onGenre, onBounds = onGenreBounds)
-                BinsSortPill("Year: ${selectedYear ?: "All"}", focus["pill:year"], onClick = onYear, onBounds = onYearBounds)
-                BinsSortPill(sortLabel, focus["pill:sort"], onClick = onSort, onBounds = onSortBounds)
-                if (selectedGenre != null || selectedYear != null) {
-                    BinsTextPill("Reset", selected = false, requester = focus["pill:reset_filters"], onClick = onClearFilters, modifier = endOfRow)
-                }
-            } else if (tab == LibraryTab.Bins) {
-                if (state.openBin != null) {
-                    BinsSortPill("Genre: ${selectedGenre ?: "All"}", focus["pill:genre"], onClick = onGenre, onBounds = onGenreBounds)
-                    BinsSortPill("Year: ${selectedYear ?: "All"}", focus["pill:year"], onClick = onYear, onBounds = onYearBounds)
-                }
-                BinsSortPill(sortLabel, focus["pill:sort"], onClick = onSort, onBounds = onSortBounds)
-                BinsIconPill(
-                    icon = CustomOrderIcon,
-                    label = stringResource(if (state.reordering) R.string.bins_custom_order_done else R.string.bins_custom_order),
-                    requester = focus["pill:custom"],
-                    onClick = onCustomOrder,
-                    armed = state.reordering,
-                    modifier = if (state.openBin != null) endOfRow else Modifier
-                )
-                if (state.openBin == null) {
-                    BinsIconPill(PlusIcon, stringResource(R.string.bins_create), focus["pill:plus"], onClick = onCreate, modifier = endOfRow)
-                }
-            } else {
-                BinsTextPill(
-                    stringResource(if (cloudRefreshing) R.string.library_syncing_btn else R.string.bins_refresh),
-                    selected = false, requester = focus["pill:refresh"], onClick = onRefresh, modifier = endOfRow
+                Spacer(Modifier.width(6.dp))
+                Text("Random Movie", color = color, fontSize = 15.sp, maxLines = 1)
+            }
+            BinsSortPill("Genre: ${selectedGenre ?: "All"}", focus["pill:genre"], onClick = onGenre, onBounds = onGenreBounds)
+            BinsSortPill(
+                "Year: ${selectedYear ?: "All"}",
+                focus["pill:year"],
+                onClick = onYear,
+                onBounds = onYearBounds,
+                modifier = if (classicFilter == ClassicMediaFilter.WATCHED_HISTORY && selectedGenre == null && selectedYear == null) endOfRow else Modifier
+            )
+            if (classicFilter != ClassicMediaFilter.WATCHED_HISTORY) {
+                BinsSortPill(
+                    sortLabel,
+                    focus["pill:sort"],
+                    onClick = onSort,
+                    onBounds = onSortBounds,
+                    modifier = if (selectedGenre == null && selectedYear == null) endOfRow else Modifier
                 )
             }
-        }
-        val bin = state.openBin
-        if (tab == LibraryTab.Bins && bin != null) {
-            Spacer(Modifier.height(18.dp))
-            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(bin.name, color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                Text(
-                    pluralStringResource(R.plurals.bins_title_count, bin.entries.size, bin.entries.size) + " · " + stringResource(R.string.bin_back_hint),
-                    color = BinsMuted, fontSize = 13.sp, modifier = Modifier.padding(bottom = 3.dp)
-                )
+            if (selectedGenre != null || selectedYear != null) {
+                BinsTextPill("Reset", selected = false, requester = focus["pill:reset_filters"], onClick = onClearFilters, modifier = endOfRow)
             }
-        }
-        if (tab == LibraryTab.Bins && state.reordering) {
-            Spacer(Modifier.height(10.dp))
-            Text(
-                stringResource(
-                    when {
-                        state.picked != null -> R.string.bins_reorder_place
-                        bin != null -> R.string.bins_reorder_pick_title
-                        else -> R.string.bins_reorder_pick_bin
-                    }
-                ),
-                color = BinsMuted, fontSize = 12.sp
-            )
         }
     }
 }
@@ -673,6 +516,7 @@ private fun LibraryHeader(
 @Composable
 private fun ClassicLibraryPortraitGrid(
     titles: List<BinTitle>,
+    isWatchedHistoryTab: Boolean,
     state: BinsUiState,
     gridState: LazyGridState,
     header: @Composable () -> Unit,
@@ -699,9 +543,9 @@ private fun ClassicLibraryPortraitGrid(
         if (state.loaded && titles.isEmpty()) {
             item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
                 EmptyScreenState(
-                    title = stringResource(R.string.bins_empty_title),
-                    subtitle = stringResource(R.string.bins_empty_subtitle),
-                    icon = Icons.Outlined.Inventory2,
+                    title = if (isWatchedHistoryTab) "No Watched History Yet" else stringResource(R.string.bins_empty_title),
+                    subtitle = if (isWatchedHistoryTab) "Movies and episodes you watch will appear here chronologically." else stringResource(R.string.bins_empty_subtitle),
+                    icon = if (isWatchedHistoryTab) Icons.Outlined.History else Icons.Outlined.Inventory2,
                     height = 260.dp
                 )
             }
@@ -721,7 +565,7 @@ private fun ClassicLibraryPortraitGrid(
                 GridContentCard(
                     item = title.preview,
                     posterCardStyle = style,
-                    isWatched = if (series) title.entry.id in state.watchedSeriesIds else title.entry.id in state.watchedMovieIds,
+                    isWatched = isWatchedHistoryTab || (if (series) title.entry.id in state.watchedSeriesIds else title.entry.id in state.watchedMovieIds),
                     focusRequester = focus["classic:$key"],
                     showLabel = true,
                     onFocused = {
@@ -732,157 +576,6 @@ private fun ClassicLibraryPortraitGrid(
                     onLongPress = { onLongClick(title, bounds) }
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun BinsGrid(
-    state: BinsUiState,
-    gridState: LazyGridState,
-    header: @Composable () -> Unit,
-    focus: FocusKeys,
-    onFocused: (String) -> Unit,
-    onClick: (Bin) -> Unit,
-    onLongClick: (Bin, Rect) -> Unit,
-    onStar: (Bin) -> Unit
-) {
-    val binWidth = (state.posterWidthDp * 2).dp
-    val binHeight = binWidth * 0.595f
-    LazyVerticalGrid(
-        columns = GridCells.FixedSize(binWidth),
-        state = gridState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = ScreenPadding,
-        horizontalArrangement = Arrangement.spacedBy(GridGap),
-        verticalArrangement = Arrangement.spacedBy(GridGap)
-    ) {
-        item(key = "header", span = { GridItemSpan(maxLineSpan) }) { header() }
-        if (state.loaded && state.bins.isEmpty()) {
-            item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
-                EmptyScreenState(
-                    title = stringResource(R.string.bins_empty_title),
-                    subtitle = stringResource(R.string.bins_empty_subtitle),
-                    icon = Icons.Outlined.Inventory2,
-                    height = 260.dp
-                )
-            }
-        }
-        items(state.bins, key = { it.id }) { bin ->
-            BinCard(
-                bin = bin,
-                posterPattern = state.posterPattern,
-                width = binWidth,
-                height = binHeight,
-                index = state.bins.indexOf(bin),
-                requester = focus["bin:${bin.id}"],
-                starRequester = focus["star:${bin.id}"],
-                picked = state.picked == bin.id,
-                reordering = state.reordering,
-                onFocused = { onFocused("bin:${bin.id}") },
-                onClick = { onClick(bin) },
-                onLongClick = { anchor -> onLongClick(bin, anchor) },
-                onStar = { onStar(bin) },
-                modifier = Modifier.animateItem(
-                    fadeInSpec = null, fadeOutSpec = null,
-                    placementSpec = spring(dampingRatio = 1f, stiffness = Spring.StiffnessMediumLow, visibilityThreshold = IntOffset.VisibilityThreshold)
-                )
-            )
-        }
-    }
-}
-
-@Composable
-private fun BinTitlesGrid(
-    bin: Bin,
-    state: BinsUiState,
-    gridState: LazyGridState,
-    header: @Composable () -> Unit,
-    focus: FocusKeys,
-    onFocused: (String) -> Unit,
-    onClick: (BinTitle) -> Unit,
-    onLongClick: (BinTitle, Rect) -> Unit,
-    onPrefetch: (BinTitle) -> Unit
-) {
-    val style = PosterCardDefaults.Style.copy(
-        width = state.posterWidthDp.dp,
-        height = (state.posterWidthDp * 3 / 2).dp,
-        cornerRadius = state.posterCornerDp.dp
-    )
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = style.width),
-        state = gridState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = ScreenPadding,
-        horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md),
-        verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.lg)
-    ) {
-        item(key = "header", span = { GridItemSpan(maxLineSpan) }) { header() }
-        if (state.openTitles.isEmpty()) {
-            item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
-                EmptyScreenState(
-                    title = stringResource(R.string.bin_empty_title),
-                    subtitle = stringResource(R.string.bin_empty_subtitle),
-                    icon = Icons.Outlined.Inventory2,
-                    height = 260.dp
-                )
-            }
-        }
-        items(state.openTitles, key = { it.entry.key }) { title ->
-            val key = title.entry.key
-            var bounds by remember { mutableStateOf(Rect.Zero) }
-            val series = title.entry.type.equals("series", true) || title.entry.type.equals("tv", true)
-            Box(
-                Modifier
-                    .onGloballyPositioned { bounds = it.boundsInRoot() }
-                    .animateItem(
-                        fadeInSpec = null, fadeOutSpec = null,
-                        placementSpec = spring(dampingRatio = 1f, stiffness = Spring.StiffnessMediumLow, visibilityThreshold = IntOffset.VisibilityThreshold)
-                    )
-            ) {
-                GridContentCard(
-                    item = title.preview,
-                    posterCardStyle = style,
-                    isWatched = if (series) title.entry.id in state.watchedSeriesIds else title.entry.id in state.watchedMovieIds,
-                    focusRequester = focus["title:$key"],
-                    showLabel = true,
-                    onFocused = {
-                        onFocused("title:$key")
-                        onPrefetch(title)
-                    },
-                    onClick = { onClick(title) },
-                    onLongPress = { onLongClick(title, bounds) }
-                )
-                if (state.picked == key) {
-                    Box(
-                        Modifier
-                            .size(style.width, style.height)
-                            .border(3.dp, Color.White, RoundedCornerShape(style.cornerRadius))
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DeleteBinDialog(bin: Bin, onConfirm: () -> Unit, onDismiss: () -> Unit) {
-    com.nuvio.tv.ui.components.NuvioDialog(
-        onDismiss = onDismiss,
-        title = stringResource(R.string.bins_delete_title, bin.name),
-        subtitle = stringResource(R.string.bins_delete_subtitle),
-        width = 460.dp
-    ) {
-        val cancel = remember { FocusRequester() }
-        LaunchedEffect(Unit) {
-            repeat(6) {
-                if (runCatching { cancel.requestFocus() }.getOrDefault(false)) return@LaunchedEffect
-                delay(40)
-            }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)) {
-            BinsTextPill(stringResource(R.string.action_cancel), selected = true, requester = cancel, onClick = onDismiss)
-            BinsTextPill(stringResource(R.string.action_delete), selected = false, requester = remember { FocusRequester() }, onClick = onConfirm)
         }
     }
 }

@@ -247,6 +247,7 @@ fun ProfileSelectionScreen(
     val onProfileFocusedChange = remember(onProfileFocusChanged, onProfileThemeFocused) {
         { profile: UserProfile? ->
             focusedProfileId = profile?.id
+            viewModel.setFocusedProfileId(profile?.id)
             focusedAvatarColor = profile?.avatarColorHex?.let(::parseProfileColor) ?: Color(0xFF555555)
             Unit
         }
@@ -298,6 +299,7 @@ fun ProfileSelectionScreen(
             ?: profiles.firstOrNull()
         targetProfile?.let { profile ->
             focusedProfileId = profile.id
+            viewModel.setFocusedProfileId(profile.id)
             focusedAvatarColor = parseProfileColor(profile.avatarColorHex)
         }
     }
@@ -877,19 +879,26 @@ private fun ProfilePosterWallBackdrop(
             .clip(RoundedCornerShape(0.dp)),
         contentAlignment = Alignment.Center
     ) {
-        if (!backdropUrl.isNullOrBlank()) {
-            val request = remember(context, backdropUrl) {
-                coil3.request.ImageRequest.Builder(context)
-                    .data(backdropUrl)
-                    .memoryCacheKey("profile_cw_backdrop_$backdropUrl")
-                    .build()
+        AnimatedContent(
+            targetState = backdropUrl,
+            transitionSpec = { fadeIn(tween(320)) togetherWith fadeOut(tween(220)) },
+            label = "cwBackdropTransition",
+            modifier = Modifier.fillMaxSize()
+        ) { targetUrl ->
+            if (!targetUrl.isNullOrBlank()) {
+                val request = remember(context, targetUrl) {
+                    coil3.request.ImageRequest.Builder(context)
+                        .data(targetUrl)
+                        .memoryCacheKey("profile_cw_backdrop_$targetUrl")
+                        .build()
+                }
+                coil3.compose.AsyncImage(
+                    model = request,
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
-            coil3.compose.AsyncImage(
-                model = request,
-                contentDescription = null,
-                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
         }
 
         // Subtle cinematic vignette over the Continue Watching backdrop so profile avatars & labels remain crisp

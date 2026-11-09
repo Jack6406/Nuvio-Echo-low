@@ -9,6 +9,7 @@ import com.nuvio.tv.core.sync.ProfileSyncService
 import com.nuvio.tv.core.sync.SetProfilePinResult
 import com.nuvio.tv.data.local.ProfileLockStateDataStore
 import com.nuvio.tv.data.local.CustomAvatarDataStore
+import com.nuvio.tv.data.local.WatchProgressPreferences
 import com.nuvio.tv.data.remote.supabase.AvatarCatalogItem
 import com.nuvio.tv.data.remote.supabase.AvatarRepository
 import com.nuvio.tv.data.remote.supabase.ProfileBackgroundCatalogItem
@@ -17,6 +18,7 @@ import com.nuvio.tv.data.remote.supabase.SupabaseProfilePinVerifyResult
 import com.nuvio.tv.data.repository.MemberAccessRepository
 import com.nuvio.tv.domain.model.CosmeticEntitlement
 import com.nuvio.tv.domain.model.UserProfile
+import com.nuvio.tv.domain.repository.MetaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -29,6 +31,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -57,39 +60,125 @@ class ProfileSelectionViewModel @Inject constructor(
     private val customAvatarDataStore: CustomAvatarDataStore,
     private val binsRepository: com.nuvio.tv.core.bins.BinsRepository,
     private val libraryRepository: com.nuvio.tv.domain.repository.LibraryRepository,
-    private val watchProgressRepository: com.nuvio.tv.domain.repository.WatchProgressRepository
+    private val watchProgressRepository: com.nuvio.tv.domain.repository.WatchProgressRepository,
+    private val watchProgressPreferences: WatchProgressPreferences,
+    private val metaRepository: MetaRepository
 ) : ViewModel() {
 
     private val posterWallSeed = MutableStateFlow(System.nanoTime())
+    private val focusedProfileIdFlow = MutableStateFlow<Int?>(null)
+    private val fetchedMetaBackdrops = MutableStateFlow<Map<String, String>>(emptyMap())
 
     fun refreshPosterWall() {
         posterWallSeed.value = System.nanoTime()
     }
 
+    fun setFocusedProfileId(profileId: Int?) {
+        focusedProfileIdFlow.value = profileId
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val focusedProfileProgressFlow = combine(
+        focusedProfileIdFlow,
+        profileManager.activeProfileId
+    ) { focused, active ->
+        focused ?: active
+    }.distinctUntilChanged().flatMapLatest { pid ->
+        watchProgressPreferences.observeAllProgress(pid)
+    }
+
     val backdropPosters: StateFlow<List<String>> = combine(
-        watchProgressRepository.continueWatching,
+        focusedProfileProgressFlow,
         watchProgressRepository.allProgress,
+        watchProgressRepository.continueWatching,
         com.nuvio.tv.data.local.CustomBackdropStore.reactiveOverrides,
-        libraryRepository.libraryItems
-    ) { cwList, allProgressList, customOverrides, libraryItems ->
+        combine(libraryRepository.libraryItems, fetchedMetaBackdrops) { lib, fetched -> lib to fetched }
+    ) { profileProgressList, allProgressList, cwList, customOverrides, (libraryItems, fetchedMap) ->
         val imdbRegex = Regex("(tt\\d{5,12})")
-        fun resolveBackdropUrl(backdropUrl: String?, id: String?): String? {
-            val cleanId = id?.trim()
-            if (!cleanId.isNullOrEmpty()) {
-                customOverrides[cleanId]?.takeIf { it.isNotBlank() }?.let { return it }
+        fun resolveBackdropUrl(
+            backdropUrl: String?,
+            posterUrl: String?,
+            rawId: String?,
+            videoId: String?,
+            contentType: String?
+        ): String? {
+            val cleanRawId = rawId?.trim()?.takeIf { it.isNotBlank() }
+            val baseId = cleanRawId?.substringBefore(':')?.trim()?.takeIf { it.isNotBlank() }
+            if (baseId != null) {
+                customOverrides[baseId]?.takeIf { it.isNotBlank() }?.let { return it }
+            }
+            if (cleanRawId != null) {
+                customOverrides[cleanRawId]?.takeIf { it.isNotBlank() }?.let { return it }
             }
             val cleanBackdrop = backdropUrl?.trim()?.takeIf { it.isNotBlank() && !it.contains("/poster/") }
             if (cleanBackdrop != null) return cleanBackdrop
-            val imdb = cleanId?.let { imdbRegex.find(it)?.groupValues?.get(1) }
-            return imdb?.let { "https://images.metahub.space/background/large/$it/img" }
+
+            if (baseId != null) {
+                fetchedMap[baseId]?.takeIf { it.isNotBlank() }?.let { return it }
+                val cachedType = contentType?.takeIf { it.isNotBlank() } ?: "movie"
+                val cached = metaRepository.getCachedMeta(cachedType, baseId)?.backdropUrl
+                    ?: metaRepository.getCachedMeta("series", baseId)?.backdropUrl
+                    ?: metaRepository.getCachedMeta("movie", baseId)?.backdropUrl
+                if (!cached.isNullOrBlank() && !cached.contains("/poster/")) {
+                    return cached
+                }
+                libraryItems.firstOrNull { it.id == baseId || it.id == cleanRawId }
+                    ?.background
+                    ?.takeIf { it.isNotBlank() && !it.contains("/poster/") }
+                    ?.let { return it }
+            }
+
+            val imdb = baseId?.let { imdbRegex.find(it)?.groupValues?.get(1) }
+                ?: cleanRawId?.let { imdbRegex.find(it)?.groupValues?.get(1) }
+                ?: videoId?.let { imdbRegex.find(it)?.groupValues?.get(1) }
+            if (imdb != null) {
+                return "https://images.metahub.space/background/large/$imdb/img"
+            }
+
+            if (baseId != null && !fetchedMap.containsKey(baseId)) {
+                val lookupType = contentType?.takeIf { it.isNotBlank() } ?: "movie"
+                viewModelScope.launch {
+                    runCatching {
+                        val res = metaRepository.getMetaFromAllAddons(type = lookupType, id = baseId)
+                            .firstOrNull { it !is com.nuvio.tv.core.network.NetworkResult.Loading }
+                        val meta = (res as? com.nuvio.tv.core.network.NetworkResult.Success)?.data
+                        val resolved = meta?.backdropUrl?.takeIf { it.isNotBlank() && !it.contains("/poster/") }
+                        if (!resolved.isNullOrBlank()) {
+                            fetchedMetaBackdrops.value = fetchedMetaBackdrops.value + (baseId to resolved)
+                        }
+                    }
+                }
+            }
+
+            return posterUrl?.trim()?.takeIf { it.isNotBlank() }
         }
 
-        val firstCw = cwList.firstOrNull() ?: allProgressList.firstOrNull()
-        val primaryBackdrop = firstCw?.let { wp ->
-            resolveBackdropUrl(wp.backdrop, wp.contentId.ifBlank { wp.videoId })
-        } ?: libraryItems.firstNotNullOfOrNull { item ->
-            resolveBackdropUrl(null, item.id)
-        } ?: "https://images.metahub.space/background/large/tt15239678/img"
+        // Combine all sources of progress and sort strictly by lastWatched descending so the true
+        // most recently watched item (whether mid-playback or completed for Next Up) always wins.
+        val mergedProgress = (profileProgressList + allProgressList + cwList)
+            .sortedByDescending { it.lastWatched }
+
+        val latestProgressBackdrop = mergedProgress.firstNotNullOfOrNull { wp ->
+            resolveBackdropUrl(
+                backdropUrl = wp.backdrop,
+                posterUrl = wp.poster,
+                rawId = wp.contentId.ifBlank { wp.videoId },
+                videoId = wp.videoId,
+                contentType = wp.contentType
+            )
+        }
+
+        val primaryBackdrop = latestProgressBackdrop
+            ?: libraryItems.firstNotNullOfOrNull { item ->
+                resolveBackdropUrl(
+                    backdropUrl = item.background,
+                    posterUrl = item.poster,
+                    rawId = item.id,
+                    videoId = item.id,
+                    contentType = item.type
+                )
+            }
+            ?: "https://images.metahub.space/background/large/tt15239678/img"
 
         listOf(primaryBackdrop)
     }.stateIn(
@@ -350,8 +439,6 @@ class ProfileSelectionViewModel @Inject constructor(
         viewModelScope.launch {
             _isPinOperationInProgress.value = true
             val result = profileSyncService.setProfilePin(profileId, pin, currentPin)
-            // Server reporting CurrentPinRequired means a PIN exists remotely —
-            // reconcile local cache so we never forget it again.
             if (result is SetProfilePinResult.Success || result is SetProfilePinResult.CurrentPinRequired) {
                 profileLockStateDataStore.setPinEnabled(profileId, true)
             }
@@ -383,34 +470,3 @@ class ProfileSelectionViewModel @Inject constructor(
         }
     }
 }
-
-private val DEFAULT_PORTRAIT_WALL_POSTERS = listOf(
-    "https://images.metahub.space/poster/medium/tt0944947/img", // Game of Thrones
-    "https://images.metahub.space/poster/medium/tt0903747/img", // Breaking Bad
-    "https://images.metahub.space/poster/medium/tt4574334/img", // Stranger Things
-    "https://images.metahub.space/poster/medium/tt15239678/img", // Dune: Part Two
-    "https://images.metahub.space/poster/medium/tt15398776/img", // Oppenheimer
-    "https://images.metahub.space/poster/medium/tt0816692/img", // Interstellar
-    "https://images.metahub.space/poster/medium/tt11198330/img", // House of the Dragon
-    "https://images.metahub.space/poster/medium/tt3581920/img", // The Last of Us
-    "https://images.metahub.space/poster/medium/tt1375666/img", // Inception
-    "https://images.metahub.space/poster/medium/tt0468569/img", // The Dark Knight
-    "https://images.metahub.space/poster/medium/tt1877830/img", // The Batman
-    "https://images.metahub.space/poster/medium/tt1190634/img", // The Boys
-    "https://images.metahub.space/poster/medium/tt7366338/img", // Chernobyl
-    "https://images.metahub.space/poster/medium/tt11280740/img", // Severance
-    "https://images.metahub.space/poster/medium/tt14452776/img", // The Bear
-    "https://images.metahub.space/poster/medium/tt2788316/img", // Shogun
-    "https://images.metahub.space/poster/medium/tt13622776/img", // Fallout
-    "https://images.metahub.space/poster/medium/tt9362722/img", // Spider-Man: Across the Spider-Verse
-    "https://images.metahub.space/poster/medium/tt4154796/img", // Avengers: Endgame
-    "https://images.metahub.space/poster/medium/tt1745960/img", // Top Gun: Maverick
-    "https://images.metahub.space/poster/medium/tt6751668/img", // Parasite
-    "https://images.metahub.space/poster/medium/tt0133093/img", // The Matrix
-    "https://images.metahub.space/poster/medium/tt1856101/img", // Blade Runner 2049
-    "https://images.metahub.space/poster/medium/tt8388390/img", // Chucky
-    "https://images.metahub.space/poster/medium/tt7529770/img", // Miracle Workers
-    "https://images.metahub.space/poster/medium/tt8633478/img", // Run
-    "https://images.metahub.space/poster/medium/tt3032476/img", // Better Call Saul
-    "https://images.metahub.space/poster/medium/tt2861424/img"  // Rick and Morty
-)

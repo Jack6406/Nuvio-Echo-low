@@ -720,17 +720,16 @@ private fun EpisodeRow(
             }
             Spacer(Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
+                val ratingPart = episodeRating(state, video)?.let {
+                    "★ ${String.format(java.util.Locale.US, "%.1f", it)}"
+                }
                 val parts = listOfNotNull(
                     video.runtime?.takeIf { it > 0 }?.let { stringResource(R.string.nd_panel_minutes, it) },
                     if (upcomingDate != null) stringResource(R.string.nd_coming, shortReleaseDate(upcomingDate)) else shortDate(video.released),
+                    ratingPart,
                     if (reminderOn) stringResource(R.string.nd_reminder_on) else null
                 )
                 Text(parts.joinToString(" · "), color = NdText2, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                episodeRating(state, video)?.let {
-                    Text("★", color = Color(0xFFF5C518), fontSize = 12.sp)
-                    Spacer(Modifier.width(3.dp))
-                    Text(String.format(java.util.Locale.US, "%.1f", it), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                }
             }
             video.overview?.takeIf { it.isNotBlank() }?.let {
                 Spacer(Modifier.height(6.dp))

@@ -18,6 +18,8 @@ import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
+import com.nuvio.tv.domain.model.WatchProgress
+import com.nuvio.tv.domain.model.WatchedItem
 import com.nuvio.tv.domain.repository.MetaRepository
 import com.nuvio.tv.domain.repository.WatchProgressRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -50,6 +52,8 @@ data class BinsUiState(
     val openTitles: List<BinTitle> = emptyList(),
     /** All unique saved titles across all bins for the Classic Library 2:3 portrait grid. */
     val allTitles: List<BinTitle> = emptyList(),
+    /** All watched or recently played movies and series sorted by most recently watched. */
+    val watchedHistoryTitles: List<BinTitle> = emptyList(),
     /** Custom order mode: pick one, then pick another to swap them. */
     val reordering: Boolean = false,
     /** The bin id or title key picked to move. */
@@ -66,6 +70,13 @@ private data class Local(
     val openBinId: String? = null,
     val reordering: Boolean = false,
     val picked: String? = null
+)
+
+private data class WatchedHistorySnapshot(
+    val watchedMovieIds: Set<String>,
+    val watchedSeriesIds: Set<String>,
+    val allProgress: List<WatchProgress>,
+    val watchedItems: List<WatchedItem>
 )
 
 @HiltViewModel
@@ -93,12 +104,27 @@ class BinsViewModel @Inject constructor(
         Triple(width, corner, patternForScreen(pattern, CustomPosterScreen.LIBRARY, screens))
     }
 
-    private val watched = combine(
+    private val watchedSnapshot = combine(
         watchProgressRepository.observeWatchedMovieIds(),
-        watchedSeriesStateHolder.fullyWatchedSeriesIds
-    ) { movies, series -> movies to series }
+        watchedSeriesStateHolder.fullyWatchedSeriesIds,
+        watchProgressRepository.allProgress,
+        watchProgressRepository.watchedItems
+    ) { movies, series, progressList, watchedItemsList ->
+        WatchedHistorySnapshot(
+            watchedMovieIds = movies,
+            watchedSeriesIds = series,
+            allProgress = progressList,
+            watchedItems = watchedItemsList
+        )
+    }
 
-    val uiState: StateFlow<BinsUiState> = combine(repository.state, local, posterLayout, watched, libraryRepository.libraryItems) { state, local, layout, watched, syncedItems ->
+    val uiState: StateFlow<BinsUiState> = combine(
+        repository.state,
+        local,
+        posterLayout,
+        watchedSnapshot,
+        libraryRepository.libraryItems
+    ) { state, local, layout, watched, syncedItems ->
         val (width, corner, pattern) = layout
         val bins = BinsReducer.sortedBins(state.bins, state.sort)
         val open = local.openBinId?.let { id -> state.bins.firstOrNull { it.id == id } }
@@ -129,6 +155,129 @@ class BinsViewModel @Inject constructor(
         val sortedAllEntries = BinsReducer.sortedEntries(uniqueEntries, state.sort)
         val allPreviews = sortedAllEntries.map { it.toPreview() }.withCustomPosterUrls(pattern)
         val allTitles = sortedAllEntries.zip(allPreviews) { entry, preview -> BinTitle(entry, preview) }
+
+        val libraryByBaseId = uniqueEntries.associateBy { it.id.substringBefore(':').trim() }
+        val historyMap = LinkedHashMap<String, Pair<Long, BinEntry>>()
+
+        fun normalizeType(rawType: String): String {
+            return if (rawType.equals("series", ignoreCase = true) || rawType.equals("tv", ignoreCase = true)) {
+                "series"
+            } else {
+                "movie"
+            }
+        }
+
+        // 1. Add from WatchProgress (most recently watched/played first)
+        watched.allProgress
+            .sortedByDescending { it.lastWatched }
+            .forEach { wp ->
+                val baseId = wp.contentId.ifBlank { wp.videoId }.substringBefore(':').trim()
+                if (baseId.isBlank()) return@forEach
+                val normType = normalizeType(wp.contentType)
+                val mapKey = "$normType:$baseId"
+                if (historyMap.containsKey(mapKey)) return@forEach
+
+                val libMatch = libraryByBaseId[baseId]
+                val cachedMeta = metaRepository.getCachedMeta(normType, baseId)
+                    ?: metaRepository.getCachedMeta(wp.contentType, baseId)
+                val resolvedName = wp.name.takeIf { it.isNotBlank() && it != baseId }
+                    ?: libMatch?.name?.takeIf { it.isNotBlank() }
+                    ?: cachedMeta?.name?.takeIf { it.isNotBlank() }
+                    ?: wp.name.ifBlank { baseId }
+                val resolvedPoster = wp.poster?.takeIf { it.isNotBlank() && !it.contains("/background/") }
+                    ?: libMatch?.poster?.takeIf { it.isNotBlank() }
+                    ?: cachedMeta?.poster?.takeIf { it.isNotBlank() }
+                    ?: baseId.takeIf { it.startsWith("tt") }?.let { "https://images.metahub.space/poster/medium/$it/img" }
+                val resolvedBackdrop = wp.backdrop?.takeIf { it.isNotBlank() }
+                    ?: libMatch?.background
+                    ?: cachedMeta?.backdropUrl
+
+                val entry = BinEntry(
+                    id = baseId,
+                    type = libMatch?.type ?: normType,
+                    name = resolvedName,
+                    poster = resolvedPoster,
+                    background = resolvedBackdrop,
+                    logo = wp.logo ?: libMatch?.logo ?: cachedMeta?.logo,
+                    description = libMatch?.description ?: cachedMeta?.description,
+                    releaseInfo = libMatch?.releaseInfo ?: cachedMeta?.releaseInfo,
+                    imdbRating = libMatch?.imdbRating ?: cachedMeta?.imdbRating,
+                    genres = libMatch?.genres?.takeIf { it.isNotEmpty() } ?: cachedMeta?.genres.orEmpty(),
+                    addonBaseUrl = libMatch?.addonBaseUrl,
+                    addedAt = wp.lastWatched,
+                    viewedAt = wp.lastWatched
+                )
+                historyMap[mapKey] = wp.lastWatched to entry
+            }
+
+        // 2. Add from WatchedItems (completed movies & episodes)
+        watched.watchedItems
+            .sortedByDescending { it.watchedAt }
+            .forEach { wi ->
+                val baseId = wi.contentId.substringBefore(':').trim()
+                if (baseId.isBlank()) return@forEach
+                val normType = normalizeType(wi.contentType)
+                val mapKey = "$normType:$baseId"
+                val existing = historyMap[mapKey]
+                if (existing != null && existing.first >= wi.watchedAt) return@forEach
+
+                val libMatch = libraryByBaseId[baseId]
+                val cachedMeta = metaRepository.getCachedMeta(normType, baseId)
+                    ?: metaRepository.getCachedMeta(wi.contentType, baseId)
+                val resolvedName = wi.title.takeIf { it.isNotBlank() && it != baseId }
+                    ?: libMatch?.name?.takeIf { it.isNotBlank() }
+                    ?: cachedMeta?.name?.takeIf { it.isNotBlank() }
+                    ?: wi.title.ifBlank { baseId }
+                val resolvedPoster = wi.poster?.takeIf { it.isNotBlank() && !it.contains("/background/") }
+                    ?: libMatch?.poster?.takeIf { it.isNotBlank() }
+                    ?: cachedMeta?.poster?.takeIf { it.isNotBlank() }
+                    ?: baseId.takeIf { it.startsWith("tt") }?.let { "https://images.metahub.space/poster/medium/$it/img" }
+
+                val entry = BinEntry(
+                    id = baseId,
+                    type = libMatch?.type ?: normType,
+                    name = resolvedName,
+                    poster = resolvedPoster,
+                    background = libMatch?.background ?: cachedMeta?.backdropUrl,
+                    logo = libMatch?.logo ?: cachedMeta?.logo,
+                    description = libMatch?.description ?: cachedMeta?.description,
+                    releaseInfo = wi.releaseInfo ?: libMatch?.releaseInfo ?: cachedMeta?.releaseInfo,
+                    imdbRating = libMatch?.imdbRating ?: cachedMeta?.imdbRating,
+                    genres = libMatch?.genres?.takeIf { it.isNotEmpty() } ?: cachedMeta?.genres.orEmpty(),
+                    addonBaseUrl = libMatch?.addonBaseUrl,
+                    addedAt = wi.watchedAt,
+                    viewedAt = wi.watchedAt
+                )
+                historyMap[mapKey] = wi.watchedAt to entry
+            }
+
+        // 3. Also include any Library entries marked watched in watchedMovieIds / watchedSeriesIds
+        uniqueEntries.forEach { entry ->
+            val baseId = entry.id.substringBefore(':').trim()
+            val isSeries = entry.type.equals("series", true) || entry.type.equals("tv", true)
+            val isMarkedWatched = if (isSeries) {
+                entry.id in watched.watchedSeriesIds || baseId in watched.watchedSeriesIds
+            } else {
+                entry.id in watched.watchedMovieIds || baseId in watched.watchedMovieIds
+            }
+            if (isMarkedWatched) {
+                val normType = if (isSeries) "series" else "movie"
+                val mapKey = "$normType:$baseId"
+                if (!historyMap.containsKey(mapKey)) {
+                    val ts = maxOf(entry.viewedAt, entry.addedAt)
+                    historyMap[mapKey] = ts to entry
+                }
+            }
+        }
+
+        val sortedHistoryEntries = historyMap.values
+            .sortedByDescending { it.first }
+            .map { it.second }
+        val historyPreviews = sortedHistoryEntries.map { it.toPreview() }.withCustomPosterUrls(pattern)
+        val watchedHistoryTitles = sortedHistoryEntries.zip(historyPreviews) { entry, preview ->
+            BinTitle(entry, preview)
+        }
+
         BinsUiState(
             loaded = true,
             bins = bins,
@@ -136,15 +285,32 @@ class BinsViewModel @Inject constructor(
             openBin = open,
             openTitles = titles,
             allTitles = allTitles,
+            watchedHistoryTitles = watchedHistoryTitles,
             reordering = local.reordering,
             picked = local.picked,
             posterWidthDp = width,
             posterCornerDp = corner,
             posterPattern = pattern,
-            watchedMovieIds = watched.first,
-            watchedSeriesIds = watched.second
+            watchedMovieIds = watched.watchedMovieIds,
+            watchedSeriesIds = watched.watchedSeriesIds
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BinsUiState())
+
+    fun pickRandomMovie(onPicked: (BinTitle) -> Unit) {
+        val state = uiState.value
+        val movies = state.allTitles.filter {
+            !it.entry.type.equals("series", ignoreCase = true) &&
+                !it.entry.type.equals("tv", ignoreCase = true)
+        }
+        if (movies.isEmpty()) {
+            showMessage("No movies found in your Library")
+            return
+        }
+        val unwatched = movies.filter { it.entry.id !in state.watchedMovieIds }
+        val pool = unwatched.ifEmpty { movies }
+        val chosen = pool.random()
+        onPicked(chosen)
+    }
 
     fun openBin(bin: Bin) {
         local.update { Local(openBinId = bin.id) }
@@ -255,7 +421,6 @@ class BinsViewModel @Inject constructor(
         prefetchJob?.cancel()
         prefetchJob = viewModelScope.launch {
             delay(150)
-            // firstOrNull: a lookup that ends with no result must not crash the screen.
             runCatching {
                 metaRepository.getMetaFromAllAddons(type = entry.type, id = entry.id)
                     .firstOrNull { it !is com.nuvio.tv.core.network.NetworkResult.Loading }

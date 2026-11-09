@@ -61,6 +61,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -241,6 +242,24 @@ private fun PlayerScreenContent(
     val postPlayRecommendationPlayerWindowFocusRequester = remember { FocusRequester() }
     var skipButtonActuallyVisible by remember { mutableStateOf(false) }
     var restoreStreamInfoFocus by remember { mutableStateOf(false) }
+    var showVisualEnhancerOverlay by remember { mutableStateOf(false) }
+    var visualEnhancerMode by remember(context) { mutableStateOf(VisualEnhancerPreferences.getInitialMode(context)) }
+    var visualEnhancerPreviewMode by remember { mutableStateOf<VisualEnhancerMode?>(null) }
+    var visualEnhancerApplyToAll by remember(context) { mutableStateOf(VisualEnhancerPreferences.isApplyToAll(context)) }
+    val effectiveAutoEnhancerMode = remember(uiState.metaGenres, uiState.contentType, uiState.title) {
+        resolveEffectiveVisualEnhancerMode(
+            selectedMode = VisualEnhancerMode.SMART_AUTO,
+            genres = uiState.metaGenres,
+            contentType = uiState.contentType,
+            title = uiState.title
+        )
+    }
+    val activeEnhancerMode = visualEnhancerPreviewMode ?: visualEnhancerMode
+    val effectiveEnhancerMode = if (activeEnhancerMode == VisualEnhancerMode.SMART_AUTO) {
+        effectiveAutoEnhancerMode
+    } else {
+        activeEnhancerMode
+    }
     var focusPlayAfterMoreBack by remember { mutableStateOf(false) }
     val nextEpisodeFocusRequester = remember { FocusRequester() }
     var subtitleDelayFocusTarget by remember { mutableStateOf(SubtitleDelayFocusTarget.SLIDER) }
@@ -377,6 +396,9 @@ private fun PlayerScreenContent(
             exitPlayerFromError()
         } else if (uiState.showAudioOverlay || uiState.showQualityOverlay || uiState.showSubtitleOverlay) {
             viewModel.onEvent(PlayerEvent.OnDismissTransientOverlay)
+        } else if (showVisualEnhancerOverlay) {
+            visualEnhancerPreviewMode = null
+            showVisualEnhancerOverlay = false
         } else if (uiState.showStreamInfoOverlay) {
             dismissStreamInfoOverlay()
         } else if (uiState.showPauseOverlay) {
@@ -733,6 +755,19 @@ private fun PlayerScreenContent(
                     }
                 }
 
+                if (keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MENU ||
+                    keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_INFO
+                ) {
+                    if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
+                        if (uiState.showStreamInfoOverlay) {
+                            dismissStreamInfoOverlay()
+                        } else if (uiState.error == null && !uiState.showLoadingOverlay) {
+                            viewModel.onEvent(PlayerEvent.OnShowStreamInfo)
+                        }
+                    }
+                    return@onPreviewKeyEvent true
+                }
+
                 if (keyEvent.nativeKeyEvent.keyCode != KeyEvent.KEYCODE_CAPTIONS) {
                     return@onPreviewKeyEvent false
                 }
@@ -872,7 +907,7 @@ private fun PlayerScreenContent(
                         uiState.showAudioOverlay || uiState.showQualityOverlay || uiState.showSubtitleOverlay ||
                         uiState.showSubtitleStylePanel || uiState.showSpeedDialog ||
                         uiState.showSubtitleDelayOverlay || uiState.showSubtitleTimingDialog ||
-                        uiState.showMoreDialog ||
+                        uiState.showMoreDialog || uiState.showStreamInfoOverlay || showVisualEnhancerOverlay ||
                         shouldConfirmNextEpisodeOnEnd ||
                         uiState.postPlayMode is PostPlayMode.StillWatching ||
                         postPlayRecommendationState.isVisible ||
@@ -1115,6 +1150,11 @@ private fun PlayerScreenContent(
                     }
                 }
 
+                VisualEnhancerVideoLayer(
+                    effectiveMode = effectiveEnhancerMode,
+                    modifier = Modifier.fillMaxSize()
+                )
+
                 // While a quality or audio switch loads (once the old picture is gone): the frame it left, or
                 // the title's backdrop, under the controls.
                 if (uiState.sourceSwitch?.coverVideo == true) {
@@ -1249,7 +1289,33 @@ private fun PlayerScreenContent(
             modifier = Modifier
                 .fillMaxSize()
                 .zIndex(2.6f),
-            seekPreview = seekThumbnails?.status
+            seekPreview = seekThumbnails?.status,
+            viewModel = viewModel
+        )
+
+        VisualEnhancerOverlay(
+            visible = showVisualEnhancerOverlay && uiState.error == null &&
+                !uiState.showLoadingOverlay && !postPlayRecommendationState.isVisible,
+            selectedMode = visualEnhancerMode,
+            effectiveAutoMode = effectiveAutoEnhancerMode,
+            applyToAll = visualEnhancerApplyToAll,
+            onPreviewMode = { preview -> visualEnhancerPreviewMode = preview },
+            onSelectMode = { chosen ->
+                visualEnhancerMode = chosen
+                visualEnhancerPreviewMode = null
+                VisualEnhancerPreferences.save(context, chosen, visualEnhancerApplyToAll)
+            },
+            onToggleApplyToAll = { enabled ->
+                visualEnhancerApplyToAll = enabled
+                VisualEnhancerPreferences.save(context, visualEnhancerMode, enabled)
+            },
+            onClose = {
+                visualEnhancerPreviewMode = null
+                showVisualEnhancerOverlay = false
+            },
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(2.65f)
         )
 
         if (uiState.playerStatsHudEnabled && uiState.playerStatsHudButtonAvailable && uiState.error == null) {
@@ -1314,7 +1380,7 @@ private fun PlayerScreenContent(
         }
 
         val skipButtonBottomPadding by animateDpAsState(
-            targetValue = if (uiState.showControls) 122.dp else 30.dp,
+            targetValue = if (uiState.showControls) 168.dp else 30.dp,
             animationSpec = tween(durationMillis = NuvioMotion.tokens.durations.fast),
             label = "skipButtonBottomPadding"
         )
@@ -1390,7 +1456,7 @@ private fun PlayerScreenContent(
             onDismissStillWatching = { viewModel.onEvent(PlayerEvent.OnDismissStillWatchingPrompt) },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 26.dp, bottom = if (uiState.showControls) 122.dp else 30.dp)
+                .padding(end = 26.dp, bottom = if (uiState.showControls) 168.dp else 30.dp)
                 .zIndex(2.1f),
         )
 
@@ -1539,6 +1605,11 @@ private fun PlayerScreenContent(
                     restoreStreamInfoFocus = true
                     viewModel.onEvent(PlayerEvent.OnShowStreamInfo)
                 },
+                onShowVisualEnhancer = {
+                    viewModel.hideControls()
+                    showVisualEnhancerOverlay = true
+                },
+                visualEnhancerActive = visualEnhancerMode != VisualEnhancerMode.ORIGINAL,
                 onResetHideTimer = {
                     viewModel.scheduleHideControls()
                     viewModel.onUserInteraction()
@@ -2369,6 +2440,8 @@ private fun PlayerControlsOverlay(
     onToggleMoreActions: () -> Unit,
     onOpenInExternalPlayer: () -> Unit,
     onShowStreamInfo: () -> Unit,
+    onShowVisualEnhancer: () -> Unit = {},
+    visualEnhancerActive: Boolean = false,
     onResetHideTimer: () -> Unit,
     onHideControls: () -> Unit,
     onBack: () -> Unit,
@@ -2601,6 +2674,16 @@ private fun PlayerControlsOverlay(
                             onFocused = onResetHideTimer
                         )
                     }
+
+                    NuvioLegacyCircleIconButton(
+                        icon = androidx.compose.material.icons.Icons.Default.AutoAwesome,
+                        contentDescription = if (visualEnhancerActive) "Visual Enhancer · On" else "Visual Enhancer",
+                        accentColor = playerAccentColor,
+                        onClick = onShowVisualEnhancer,
+                        upFocusRequester = progressUpTarget,
+                        onDownKey = onHideControls,
+                        onFocused = onResetHideTimer
+                    )
 
                     NuvioLegacyCircleIconButton(
                         icon = Icons.Default.Speed,
@@ -3229,28 +3312,57 @@ private fun PlayerClockOverlay(
 
     Row(
         modifier = Modifier
-            .appleTvFrostedGlass(RoundedCornerShape(999.dp))
-            .padding(horizontal = 14.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Text(
-            text = timeFormatter.format(Date(nowMs)),
-            style = MaterialTheme.typography.bodyMedium.copy(
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold
-            ),
-            color = Color.White
-        )
-        if (!isLive) {
-            Text(
-                text = stringResource(R.string.player_ends_at, endTimeText),
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
-                ),
-                color = Color.White.copy(alpha = 0.62f)
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color(0xC80D0F14))
+            .border(
+                width = 0.8.dp,
+                color = Color.White.copy(alpha = 0.16f),
+                shape = RoundedCornerShape(999.dp)
             )
+            .padding(3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color.White.copy(alpha = 0.14f))
+                .padding(horizontal = 11.dp, vertical = 4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = timeFormatter.format(Date(nowMs)),
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.2.sp
+                ),
+                color = Color.White
+            )
+        }
+        if (!isLive) {
+            Row(
+                modifier = Modifier.padding(start = 9.dp, end = 11.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Text(
+                    text = "ENDS",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.7.sp
+                    ),
+                    color = Color.White.copy(alpha = 0.48f)
+                )
+                Text(
+                    text = endTimeText,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    color = Color.White.copy(alpha = 0.88f)
+                )
+            }
         }
     }
 }

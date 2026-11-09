@@ -1478,13 +1478,27 @@ class MetaDetailsViewModel @Inject constructor(
                     imdbId = imdbId,
                     tmdbId = tmdbId
                 )
+                val tmdbFallbackRatings: Map<Pair<Int, Int>, Double> = if (ratings.isEmpty() && tmdbId != null) {
+                    runCatching {
+                        val seasonNums = meta.videos.mapNotNull { it.season }.filter { it > 0 }.distinct()
+                        tmdbMetadataService.fetchEpisodeEnrichment(
+                            tmdbId = tmdbId.toString(),
+                            seasonNumbers = seasonNums
+                        ).mapNotNull { (key, enr) ->
+                            val r = enr.rating?.takeIf { it > 0.0 } ?: return@mapNotNull null
+                            key to r
+                        }.toMap()
+                    }.getOrDefault(emptyMap())
+                } else {
+                    emptyMap()
+                }
 
                 _uiState.update { state ->
                     if (state.meta == null || state.meta.id != meta.id) {
                         state
                     } else {
                         state.copy(
-                            episodeImdbRatings = addonRatings + ratings,
+                            episodeImdbRatings = tmdbFallbackRatings + addonRatings + ratings,
                             isEpisodeRatingsLoading = false,
                             episodeRatingsError = null
                         )
@@ -1638,7 +1652,8 @@ class MetaDetailsViewModel @Inject constructor(
                             useTmdbReleaseDates = false
                         ),
                         thumbnail = if (settings.useEpisodes) ep?.thumbnail ?: video.thumbnail else video.thumbnail,
-                        runtime = if (settings.useEpisodes) ep?.runtimeMinutes ?: video.runtime else video.runtime
+                        runtime = if (settings.useEpisodes) ep?.runtimeMinutes ?: video.runtime else video.runtime,
+                        rating = video.rating?.takeIf { it > 0.0 } ?: ep?.rating
                     )
                 }
             )
