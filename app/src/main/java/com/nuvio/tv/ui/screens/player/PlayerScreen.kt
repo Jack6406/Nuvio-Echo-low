@@ -246,12 +246,12 @@ private fun PlayerScreenContent(
     var visualEnhancerMode by remember(context) { mutableStateOf(VisualEnhancerPreferences.getInitialMode(context)) }
     var visualEnhancerPreviewMode by remember { mutableStateOf<VisualEnhancerMode?>(null) }
     var visualEnhancerApplyToAll by remember(context) { mutableStateOf(VisualEnhancerPreferences.isApplyToAll(context)) }
-    val effectiveAutoEnhancerMode = remember(uiState.metaGenres, uiState.contentType, uiState.title) {
+    val effectiveAutoEnhancerMode = remember(uiState.contentType, uiState.title, uiState.description) {
         resolveEffectiveVisualEnhancerMode(
             selectedMode = VisualEnhancerMode.SMART_AUTO,
-            genres = uiState.metaGenres,
-            contentType = uiState.contentType,
-            title = uiState.title
+            genres = viewModel.controller.metaGenres,
+            contentType = uiState.contentType.orEmpty(),
+            title = "${uiState.title} ${uiState.description.orEmpty()}"
         )
     }
     val activeEnhancerMode = visualEnhancerPreviewMode ?: visualEnhancerMode

@@ -222,8 +222,8 @@ fun StreamInfoOverlay(
             val rendered = (vCounters?.renderedOutputBufferCount ?: 0).coerceAtLeast(1)
             val totalOffsetUs = vCounters?.totalVideoFrameProcessingOffsetUs ?: 0L
             val avgOffsetMs = (totalOffsetUs.toDouble() / rendered.toDouble()) / 1000.0
-            val underruns = aCounters?.audioTrackUnderrunCount ?: 0
-            val backBufferSec = ((viewModel?.controller?.currentBackBufferMs ?: 0) / 1000).coerceAtLeast(0)
+            val underruns = aCounters?.droppedBufferCount ?: 0
+            val backBufferSec = ((viewModel?.controller?.effectiveBackBufferDurationMs ?: 0) / 1000).coerceAtLeast(0)
             val streamUrl = viewModel?.getCurrentStreamUrl().orEmpty()
             val totalSizeBytes = data?.fileSize ?: viewModel?.getCurrentFileSizeBytes() ?: probedFileSize
             val nativeBytes = viewModel?.getPlayerNativeMemoryBytes()
@@ -309,11 +309,11 @@ fun StreamInfoOverlay(
                 val host = runCatching { URI(streamUrl).host }.getOrNull()?.takeIf { it.isNotBlank() }
                 val provider = detectProviderName(data?.streamName, data?.streamDescription, host)
 
-                val fileBps = PlayerBitrateEstimator.fileBitrateBps(totalSizeBytes, durMs)
+                val fileBps: Long? = PlayerBitrateEstimator.fileBitrateBps(totalSizeBytes, durMs)?.toLong()
                     ?: data?.fileBitrate?.toLong()
                     ?: data?.videoBitrate?.toLong()
-                val bitrateText = fileBps?.takeIf { it > 0L }?.let {
-                    String.format(Locale.US, "%.1f Mbit/s average", it / 1_000_000.0)
+                val bitrateText = fileBps?.takeIf { it > 0L }?.let { bps ->
+                    String.format(Locale.US, "%.1f Mbit/s average", bps.toDouble() / 1_000_000.0)
                 }
 
                 val (hdrLabel, dvLabel, pixFmt) = detectHdrAndFormat(
@@ -869,7 +869,7 @@ fun VisualEnhancerVideoLayer(
                         center = Offset(w * 0.5f, h * 0.44f),
                         radius = maxRadius * 0.85f
                     ),
-                    blendMode = BlendMode.SoftLight
+                    blendMode = BlendMode.Overlay
                 )
                 drawRect(
                     brush = Brush.radialGradient(
@@ -888,7 +888,7 @@ fun VisualEnhancerVideoLayer(
             VisualEnhancerMode.CLEAR -> {
                 drawRect(
                     color = Color(0x1AF4F9FF),
-                    blendMode = BlendMode.SoftLight
+                    blendMode = BlendMode.Overlay
                 )
                 drawRect(
                     brush = Brush.radialGradient(
@@ -915,7 +915,7 @@ fun VisualEnhancerVideoLayer(
                         start = Offset.Zero,
                         end = Offset(w, h)
                     ),
-                    blendMode = BlendMode.SoftLight
+                    blendMode = BlendMode.Overlay
                 )
                 drawRect(
                     brush = Brush.radialGradient(
@@ -940,7 +940,7 @@ fun VisualEnhancerVideoLayer(
                             Color(0x241B4965)
                         )
                     ),
-                    blendMode = BlendMode.SoftLight
+                    blendMode = BlendMode.Overlay
                 )
                 drawRect(
                     color = Color(0x1248CAE4),
@@ -957,7 +957,7 @@ fun VisualEnhancerVideoLayer(
                             Color(0x249B2226)
                         )
                     ),
-                    blendMode = BlendMode.SoftLight
+                    blendMode = BlendMode.Overlay
                 )
                 drawRect(
                     color = Color(0x10FFB703),
@@ -976,7 +976,7 @@ fun VisualEnhancerVideoLayer(
                         center = Offset(w * 0.5f, h * 0.45f),
                         radius = maxRadius * 0.9f
                     ),
-                    blendMode = BlendMode.SoftLight
+                    blendMode = BlendMode.Overlay
                 )
                 drawRect(
                     brush = Brush.verticalGradient(
@@ -1004,7 +1004,7 @@ fun VisualEnhancerVideoLayer(
                         center = center,
                         radius = maxRadius
                     ),
-                    blendMode = BlendMode.SoftLight
+                    blendMode = BlendMode.Overlay
                 )
             }
         }
