@@ -49,16 +49,19 @@ class GitHubContributorsRepository @Inject constructor(
     }
 
     private fun UniqueContributorDto.toContributor(index: Int): GitHubContributor? {
-        val normalizedName = name?.trim().orEmpty()
+        val rawName = name?.trim().orEmpty()
         val normalizedTotal = total ?: 0
-        if (normalizedName.isBlank() || normalizedTotal <= 0) return null
+        if (rawName.isBlank() || normalizedTotal <= 0) return null
 
+        val normalizedName = if (rawName.equals("Laking22", ignoreCase = true)) "Sahil" else rawName
         val normalizedProfile = profile?.takeIf { it.isNotBlank() }
+        val rawLogin = normalizedProfile?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+        val normalizedLogin = if (rawLogin.equals("Laking22", ignoreCase = true)) "Sahil" else rawLogin
 
         return GitHubContributor(
             id = normalizedProfile ?: "$normalizedName|$index",
             name = normalizedName,
-            githubLogin = normalizedProfile?.substringAfterLast('/')?.takeIf { it.isNotBlank() },
+            githubLogin = normalizedLogin,
             avatarUrl = avatar?.takeIf { it.isNotBlank() },
             profileUrl = normalizedProfile,
             totalContributions = normalizedTotal,

@@ -3,6 +3,7 @@ package com.nuvio.tv.ui.screens.player
 import android.content.Context
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.media.MediaCodecList
 import android.net.TrafficStats
 import android.os.Build
 import android.os.Debug
@@ -137,7 +138,7 @@ private data class LiveDiagnosticsState(
     val cpuText: String = "0 %",
     val cpuStatus: DiagDotStatus = DiagDotStatus.GOOD,
     val memoryText: String = "--",
-    val thermalText: String = "Normal · below limit",
+    val thermalText: String = "30+ °C below limit",
     val thermalStatus: DiagDotStatus = DiagDotStatus.GOOD
 )
 
@@ -170,7 +171,7 @@ fun StreamInfoOverlay(
         }
     }
 
-    // Only polls while the overlay is visible; stops immediately when closed (0% background CPU on 1GB Fire Stick).
+    // Only polls while the overlay is visible; caches static hardware strings once to save CPU/heap on 1GB Fire Stick.
     LaunchedEffect(visible, viewModel, data) {
         if (!visible) return@LaunchedEffect
 
@@ -186,11 +187,35 @@ fun StreamInfoOverlay(
         var lastRxBytes = -1L
         var lastRxAtMs = 0L
 
+        val streamUrl = viewModel?.getCurrentStreamUrl().orEmpty()
+        val cachedHost = withContext(Dispatchers.IO) {
+            runCatching { URI(streamUrl).host }.getOrNull()?.takeIf { it.isNotBlank() }
+        }
+        val cachedProvider = detectProviderName(data?.streamName, data?.streamDescription, cachedHost)
+        val cachedDisplayMode = runCatching {
+            @Suppress("DEPRECATION")
+            val mode = windowManager?.defaultDisplay?.mode
+            if (mode != null) {
+                String.format(Locale.US, "%d×%d · %.2f Hz", mode.physicalWidth, mode.physicalHeight, mode.refreshRate)
+            } else null
+        }.getOrNull()
+        val cachedAudioRoute = runCatching {
+            val outputs = audioManager?.getDevices(AudioManager.GET_DEVICES_OUTPUTS).orEmpty()
+            val hasHdmi = outputs.any {
+                it.type == AudioDeviceInfo.TYPE_HDMI ||
+                    it.type == AudioDeviceInfo.TYPE_HDMI_ARC ||
+                    it.type == AudioDeviceInfo.TYPE_HDMI_EARC
+            }
+            if (hasHdmi) "HDMI · 0 changes" else "System · 0 changes"
+        }.getOrDefault("HDMI · 0 changes")
+
+        var cachedDecoderName: String? = null
+        var cachedDecoderMime: String? = null
+
         if (viewModel != null && viewModel.getCurrentFileSizeBytes() == null && data?.fileSize == null) {
-            val url = viewModel.getCurrentStreamUrl()
-            if (url.isNotBlank()) {
+            if (streamUrl.isNotBlank()) {
                 probedFileSize = withContext(Dispatchers.IO) {
-                    StreamSpeedTester.getStreamContentLength(url, viewModel.getCurrentHeaders()).takeIf { it > 0L }
+                    StreamSpeedTester.getStreamContentLength(streamUrl, viewModel.getCurrentHeaders()).takeIf { it > 0L }
                 }
             }
         }
@@ -217,6 +242,7 @@ fun StreamInfoOverlay(
             val height = vFormat?.height?.takeIf { it > 0 } ?: data?.videoHeight
             val fps = vFormat?.frameRate?.takeIf { it > 0f } ?: data?.videoFrameRate
             val rawCodec = vFormat?.codecs ?: vFormat?.sampleMimeType ?: data?.videoCodec
+            val sampleMime = vFormat?.sampleMimeType
             val dropped = vCounters?.droppedBufferCount ?: 0
             val skipped = vCounters?.skippedOutputBufferCount ?: 0
             val rendered = (vCounters?.renderedOutputBufferCount ?: 0).coerceAtLeast(1)
@@ -224,13 +250,16 @@ fun StreamInfoOverlay(
             val avgOffsetMs = (totalOffsetUs.toDouble() / rendered.toDouble()) / 1000.0
             val underruns = aCounters?.droppedBufferCount ?: 0
             val backBufferSec = ((viewModel?.controller?.effectiveBackBufferDurationMs ?: 0) / 1000).coerceAtLeast(0)
-            val streamUrl = viewModel?.getCurrentStreamUrl().orEmpty()
             val totalSizeBytes = data?.fileSize ?: viewModel?.getCurrentFileSizeBytes() ?: probedFileSize
             val nativeBytes = viewModel?.getPlayerNativeMemoryBytes()
 
             val sampled = withContext(Dispatchers.IO) {
+                if (sampleMime != null && sampleMime != cachedDecoderMime) {
+                    cachedDecoderMime = sampleMime
+                    cachedDecoderName = resolveHardwareDecoderName(sampleMime)
+                }
+
                 val now = System.currentTimeMillis()
-                // CPU
                 val cpuTicks = runCatching {
                     val stat = File("/proc/self/stat").readText()
                     val f = stat.substring(stat.lastIndexOf(')') + 1).trim().split(" ")
@@ -249,7 +278,6 @@ fun StreamInfoOverlay(
                     lastProcAtMs = now
                 }
 
-                // Network Speed
                 val uidRx = TrafficStats.getUidRxBytes(Process.myUid())
                 val rxBytes = if (uidRx != TrafficStats.UNSUPPORTED.toLong()) uidRx else TrafficStats.getTotalRxBytes()
                 val mbps = if (rxBytes >= 0L && lastRxBytes >= 0L && now > lastRxAtMs) {
@@ -264,7 +292,6 @@ fun StreamInfoOverlay(
                     lastRxAtMs = now
                 }
 
-                // Memory
                 val rt = Runtime.getRuntime()
                 val javaUsedMb = (rt.totalMemory() - rt.freeMemory()) / (1024L * 1024L)
                 val javaMaxMb = rt.maxMemory() / (1024L * 1024L)
@@ -274,27 +301,6 @@ fun StreamInfoOverlay(
                     runCatching { Debug.getNativeHeapAllocatedSize() / (1024L * 1024L) }.getOrDefault(0L)
                 }
 
-                // Display mode
-                val displayMode = runCatching {
-                    @Suppress("DEPRECATION")
-                    val mode = windowManager?.defaultDisplay?.mode
-                    if (mode != null) {
-                        String.format(Locale.US, "%d×%d · %.2f Hz", mode.physicalWidth, mode.physicalHeight, mode.refreshRate)
-                    } else null
-                }.getOrNull()
-
-                // Audio route
-                val audioRoute = runCatching {
-                    val outputs = audioManager?.getDevices(AudioManager.GET_DEVICES_OUTPUTS).orEmpty()
-                    val hasHdmi = outputs.any {
-                        it.type == AudioDeviceInfo.TYPE_HDMI ||
-                            it.type == AudioDeviceInfo.TYPE_HDMI_ARC ||
-                            it.type == AudioDeviceInfo.TYPE_HDMI_EARC
-                    }
-                    if (hasHdmi) "HDMI · 0 changes" else "System Output · 0 changes"
-                }.getOrDefault("HDMI · 0 changes")
-
-                // Thermal status
                 val (thermalLabel, thermalDot) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && powerManager != null) {
                     when (powerManager.currentThermalStatus) {
                         PowerManager.THERMAL_STATUS_NONE -> "30+ °C below limit" to DiagDotStatus.GOOD
@@ -305,9 +311,6 @@ fun StreamInfoOverlay(
                 } else {
                     "30+ °C below limit" to DiagDotStatus.GOOD
                 }
-
-                val host = runCatching { URI(streamUrl).host }.getOrNull()?.takeIf { it.isNotBlank() }
-                val provider = detectProviderName(data?.streamName, data?.streamDescription, host)
 
                 val fileBps: Long? = PlayerBitrateEstimator.fileBitrateBps(totalSizeBytes, durMs)?.toLong()
                     ?: data?.fileBitrate?.toLong()
@@ -355,8 +358,8 @@ fun StreamInfoOverlay(
                 LiveDiagnosticsState(
                     positionText = "${formatDiagTime(posMs)} / ${formatDiagTime(durMs)}",
                     addonName = data?.addonName ?: data?.streamName,
-                    providerName = provider,
-                    serverHost = host,
+                    providerName = cachedProvider,
+                    serverHost = cachedHost,
                     fileName = data?.filename ?: data?.streamDescription?.lineSequence()?.firstOrNull(),
                     fileSizeText = totalSizeBytes?.takeIf { it > 0L }?.let { formatDiagBytes(it) },
                     fileBitrateText = bitrateText,
@@ -364,7 +367,7 @@ fun StreamInfoOverlay(
                     hdrText = hdrLabel,
                     dvProfileText = dvLabel,
                     pixelFormatText = pixFmt,
-                    decoderName = data?.playerEngine ?: "Hardware MediaCodec",
+                    decoderName = cachedDecoderName ?: data?.playerEngine ?: "Hardware MediaCodec",
                     droppedText = "$dropped · skipped $skipped",
                     droppedStatus = when {
                         dropped > 25 -> DiagDotStatus.BAD
@@ -373,11 +376,11 @@ fun StreamInfoOverlay(
                     },
                     frameLeadText = String.format(Locale.US, "%.1f ms", avgOffsetMs),
                     frameLeadStatus = if (avgOffsetMs < -45.0) DiagDotStatus.WARN else DiagDotStatus.GOOD,
-                    displayModeText = displayMode,
+                    displayModeText = cachedDisplayMode,
                     audioSummary = audioSummary,
                     underrunsText = "$underruns · native 0",
                     underrunsStatus = if (underruns > 0) DiagDotStatus.WARN else DiagDotStatus.GOOD,
-                    audioRouteText = audioRoute,
+                    audioRouteText = cachedAudioRoute,
                     audioJitterText = "drift avg 0 ms/s · 0 ev",
                     bufferAheadText = String.format(Locale.US, "%.1f s ahead", aheadMs / 1000.0),
                     bufferStatus = when {
@@ -395,7 +398,7 @@ fun StreamInfoOverlay(
                         cpuPct >= 60.0 -> DiagDotStatus.WARN
                         else -> DiagDotStatus.GOOD
                     },
-                    memoryText = "Java heap $javaUsedMb/$javaMaxMb MB · native heap $nativeMb MB",
+                    memoryText = "Java $javaUsedMb/$javaMaxMb MB · native $nativeMb MB",
                     thermalText = thermalLabel,
                     thermalStatus = thermalDot
                 )
@@ -441,23 +444,24 @@ fun StreamInfoOverlay(
                 }
             }
     ) {
-        // Right-aligned Diagnostics HUD card matching the user's reference photo (1000042150.jpg)
+        // Compact, translucent right-aligned Diagnostics HUD card that fits all 6 sections without cutting off
+        // and sits below the top-right clock (top = 52.dp).
         Column(
             modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 26.dp, top = 22.dp, bottom = 22.dp)
-                .width(420.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(Color(0xD90E1015))
-                .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(14.dp))
-                .padding(horizontal = 16.dp, vertical = 14.dp)
+                .align(Alignment.TopEnd)
+                .padding(end = 24.dp, top = 52.dp, bottom = 16.dp)
+                .width(282.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(Color.Black.copy(alpha = 0.34f))
+                .border(0.75.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(11.dp))
+                .padding(horizontal = 11.dp, vertical = 8.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(3.dp)
+            verticalArrangement = Arrangement.spacedBy(1.dp)
         ) {
             DiagSectionHeader("PLAYBACK")
             DiagRow("Position", diag.positionText)
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
             DiagSectionHeader("SOURCE")
             DiagRow("Add-on", diag.addonName)
             DiagRow("Provider", diag.providerName)
@@ -466,7 +470,7 @@ fun StreamInfoOverlay(
             DiagRow("Size", diag.fileSizeText)
             DiagRow("File bitrate", diag.fileBitrateText)
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
             DiagSectionHeader("VIDEO")
             DiagRow("Video", diag.videoSummary)
             DiagRow("HDR", diag.hdrText)
@@ -479,14 +483,14 @@ fun StreamInfoOverlay(
             DiagRow("Frame lead", diag.frameLeadText, diag.frameLeadStatus)
             DiagRow("Display", diag.displayModeText, DiagDotStatus.GOOD)
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
             DiagSectionHeader("AUDIO")
             DiagRow("Audio", diag.audioSummary, DiagDotStatus.GOOD)
             DiagRow("Underruns", diag.underrunsText, diag.underrunsStatus)
             DiagRow("Route", diag.audioRouteText)
             DiagRow("A jitter", diag.audioJitterText, DiagDotStatus.GOOD)
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
             DiagSectionHeader("NETWORK")
             DiagRow("Buffer", diag.bufferAheadText, diag.bufferStatus)
             DiagRow("Back buffer", diag.backBufferText)
@@ -494,14 +498,14 @@ fun StreamInfoOverlay(
             DiagRow("Connections", diag.connectionsText)
             DiagRow("Requests", diag.requestsText)
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
             DiagSectionHeader("SYSTEM")
             DiagRow("App CPU", diag.cpuText, diag.cpuStatus)
             DiagRow("Memory", diag.memoryText)
             DiagRow("Device temp", diag.thermalText, diag.thermalStatus)
 
             if (hudButtonShown) {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
@@ -519,27 +523,35 @@ fun StreamInfoOverlay(
     }
 }
 
+private fun resolveHardwareDecoderName(mimeType: String): String? = runCatching {
+    val list = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
+    list.firstOrNull { info ->
+        !info.isEncoder && info.supportedTypes.any { it.equals(mimeType, ignoreCase = true) }
+    }?.name
+}.getOrNull()
+
 @Composable
 private fun DiagSectionHeader(title: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 2.dp, bottom = 2.dp),
+            .padding(top = 1.dp, bottom = 0.5.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(
             text = title,
-            color = Color.White.copy(alpha = 0.62f),
-            fontSize = 10.sp,
+            color = Color.White.copy(alpha = 0.58f),
+            fontSize = 8.sp,
+            lineHeight = 10.sp,
             fontWeight = FontWeight.Bold,
-            letterSpacing = 0.8.sp
+            letterSpacing = 0.6.sp
         )
         Box(
             modifier = Modifier
                 .weight(1f)
-                .height(0.8.dp)
-                .background(Color.White.copy(alpha = 0.14f))
+                .height(0.6.dp)
+                .background(Color.White.copy(alpha = 0.13f))
         )
     }
 }
@@ -556,9 +568,9 @@ private fun DiagRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(
-            modifier = Modifier.width(96.dp),
+            modifier = Modifier.width(68.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             if (dotStatus != DiagDotStatus.NONE) {
                 val dotColor = when (dotStatus) {
@@ -569,17 +581,18 @@ private fun DiagRow(
                 }
                 Box(
                     modifier = Modifier
-                        .size(6.dp)
+                        .size(4.5.dp)
                         .clip(CircleShape)
                         .background(dotColor)
                 )
             } else {
-                Spacer(modifier = Modifier.width(11.dp))
+                Spacer(modifier = Modifier.width(8.5.dp))
             }
             Text(
                 text = label,
-                color = Color.White.copy(alpha = 0.68f),
-                fontSize = 11.sp,
+                color = Color.White.copy(alpha = 0.72f),
+                fontSize = 9.sp,
+                lineHeight = 11.sp,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -587,8 +600,9 @@ private fun DiagRow(
         }
         Text(
             text = value,
-            color = Color.White.copy(alpha = 0.95f),
-            fontSize = 11.sp,
+            color = Color.White.copy(alpha = 0.96f),
+            fontSize = 9.sp,
+            lineHeight = 11.sp,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -708,7 +722,7 @@ private fun StreamInfoHudButton(
                 left = FocusRequester.Cancel
                 right = FocusRequester.Cancel
             },
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 3.dp),
         colors = ButtonDefaults.colors(
             containerColor = if (enabled) NuvioTheme.colors.Secondary.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f),
             contentColor = if (enabled) Color.White else Color.White.copy(alpha = 0.7f),
@@ -740,7 +754,7 @@ private fun StreamInfoHudButton(
 
         Box(
             modifier = Modifier
-                .size(7.dp)
+                .size(6.dp)
                 .clip(CircleShape)
                 .background(
                     if (enabled) {
@@ -753,9 +767,25 @@ private fun StreamInfoHudButton(
         Spacer(modifier = Modifier.width(NuvioTheme.spacing.xs))
         Text(
             text = "$hudLabel: $statusText",
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
             fontWeight = if (isFocused || enabled) FontWeight.SemiBold else FontWeight.Medium
         )
+    }
+}
+
+enum class VisualEnhancerIntensity(
+    val id: String,
+    val label: String,
+    val multiplier: Float
+) {
+    SUBTLE("subtle", "Subtle", 0.68f),
+    BALANCED("balanced", "Balanced", 1.0f),
+    HIGH_POP("high_pop", "High Pop", 1.38f);
+
+    companion object {
+        fun fromId(id: String?): VisualEnhancerIntensity {
+            return entries.firstOrNull { it.id == id } ?: BALANCED
+        }
     }
 }
 
@@ -765,14 +795,16 @@ enum class VisualEnhancerMode(
     val subtitle: String
 ) {
     ORIGINAL("original", "Original", "Unmodified picture"),
-    SMART_AUTO("smart_auto", "Smart Auto", "Adapts to genre"),
-    HDR("hdr", "HDR", "Expanded contrast & glow"),
+    SMART_AUTO("smart_auto", "Smart Auto", "Cool projector auto-grade"),
+    ELFIN_HDR10("elfin_hdr10", "Elfin HDR10", "Cool HDR10 contrast & shadow lift"),
+    PROJECTOR_BRIGHT("projector_bright", "Projector Bright", "Cool high-lumen boost"),
+    HDR("hdr", "HDR", "Cool specular pop & contrast"),
     CLEAR("clear", "Clear", "Natural crisp clarity"),
-    ULTRA_CLEAR("ultra_clear", "Ultra Clear", "Vivid detail & punch"),
-    ARCTIC_BLUE("arctic_blue", "Arctic Blue", "Cool cinema tone"),
-    WARM_GLOW("warm_glow", "Warm Glow", "Golden sunset warmth"),
-    CINEMATIC("cinematic", "Cinematic", "Film grade & shadows"),
-    NIGHT_CLARITY("night_clarity", "Night Clarity", "Lifts dark scenes");
+    ULTRA_CLEAR("ultra_clear", "Ultra Clear", "Cool vivid detail & punch"),
+    ARCTIC_BLUE("arctic_blue", "Arctic Blue", "Ice-blue cinema tone"),
+    NIGHT_CLARITY("night_clarity", "Night Clarity", "Lifts dark projector scenes"),
+    CINEMATIC("cinematic", "Cinematic", "Cool silver-teal film grade"),
+    WARM_GLOW("warm_glow", "Warm Glow", "Soft sunset warmth");
 
     companion object {
         fun fromId(id: String?): VisualEnhancerMode {
@@ -785,14 +817,19 @@ object VisualEnhancerPreferences {
     private const val PREFS_NAME = "nuvio_visual_enhancer_prefs"
     private const val KEY_APPLY_TO_ALL = "apply_to_all"
     private const val KEY_SAVED_MODE = "saved_mode"
+    private const val KEY_INTENSITY = "intensity_level"
+
+    internal var currentIntensity by mutableStateOf(VisualEnhancerIntensity.BALANCED)
 
     fun isApplyToAll(context: Context): Boolean {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        currentIntensity = VisualEnhancerIntensity.fromId(prefs.getString(KEY_INTENSITY, VisualEnhancerIntensity.BALANCED.id))
         return prefs.getBoolean(KEY_APPLY_TO_ALL, false)
     }
 
     fun getInitialMode(context: Context): VisualEnhancerMode {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        currentIntensity = VisualEnhancerIntensity.fromId(prefs.getString(KEY_INTENSITY, VisualEnhancerIntensity.BALANCED.id))
         if (!prefs.getBoolean(KEY_APPLY_TO_ALL, false)) return VisualEnhancerMode.ORIGINAL
         return VisualEnhancerMode.fromId(prefs.getString(KEY_SAVED_MODE, VisualEnhancerMode.ORIGINAL.id))
     }
@@ -802,7 +839,14 @@ object VisualEnhancerPreferences {
         prefs.edit()
             .putBoolean(KEY_APPLY_TO_ALL, applyToAll)
             .putString(KEY_SAVED_MODE, if (applyToAll) mode.id else VisualEnhancerMode.ORIGINAL.id)
+            .putString(KEY_INTENSITY, currentIntensity.id)
             .apply()
+    }
+
+    fun saveIntensity(context: Context, intensity: VisualEnhancerIntensity) {
+        currentIntensity = intensity
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_INTENSITY, intensity.id).apply()
     }
 }
 
@@ -821,22 +865,21 @@ fun resolveEffectiveVisualEnhancerMode(
             normalizedGenres.any { it.contains("anim") || it.contains("family") || it.contains("kids") } ->
             VisualEnhancerMode.ULTRA_CLEAR
         normalizedGenres.any { it.contains("horror") || it.contains("mystery") || it.contains("thriller") } ||
-            lowerTitle.contains("dark") || lowerTitle.contains("night") ->
+            lowerTitle.contains("dark") || lowerTitle.contains("night") || lowerTitle.contains("acolyte") ->
             VisualEnhancerMode.NIGHT_CLARITY
         normalizedGenres.any { it.contains("documentary") || it.contains("sport") || it.contains("news") } ->
             VisualEnhancerMode.CLEAR
         normalizedGenres.any { it.contains("sci-fi") || it.contains("science fiction") } ->
             VisualEnhancerMode.ARCTIC_BLUE
-        normalizedGenres.any { it.contains("romance") || it.contains("comedy") || it.contains("musical") } ->
-            VisualEnhancerMode.WARM_GLOW
-        else -> VisualEnhancerMode.CINEMATIC
+        else -> VisualEnhancerMode.ELFIN_HDR10
     }
 }
 
 /**
- * Zero-allocation static GPU compositor grading layer designed for 1GB RAM Fire Stick devices.
- * Keeps ExoPlayer on its native hardware SurfaceView and records static vector draw commands once
- * per mode switch (0 bytes allocated per video frame, 0% CPU overhead during playback).
+ * Zero-allocation static GPU compositor grading layer tuned specifically for the XGIMI Elfin Flip
+ * DLP projector (Brightness 49, Contrast 57, Saturation 75, Cool color temperature) on 1GB RAM Fire Stick.
+ * Preserves 100% of peak lumen output (no darkening vignettes on projector presets) and uses cool
+ * ice-white/silver-cyan luminance curves so colors never oversaturate on top of Saturation 75.
  */
 @Composable
 fun VisualEnhancerVideoLayer(
@@ -844,6 +887,7 @@ fun VisualEnhancerVideoLayer(
     modifier: Modifier = Modifier
 ) {
     if (effectiveMode == VisualEnhancerMode.ORIGINAL) return
+    val intensityMultiplier = VisualEnhancerPreferences.currentIntensity.multiplier
 
     Canvas(
         modifier = modifier
@@ -853,79 +897,95 @@ fun VisualEnhancerVideoLayer(
         val w = size.width
         val h = size.height
         val center = Offset(w * 0.5f, h * 0.5f)
-        val maxRadius = size.maxDimension * 0.72f
+        val maxRadius = size.maxDimension * 0.76f
+        fun scaledAlpha(base: Float): Float = (base * intensityMultiplier).coerceIn(0f, 0.55f)
 
         when (effectiveMode) {
             VisualEnhancerMode.ORIGINAL, VisualEnhancerMode.SMART_AUTO -> Unit
 
-            VisualEnhancerMode.HDR -> {
+            VisualEnhancerMode.ELFIN_HDR10 -> {
+                // 1. DLP Shadow Toe-Lift (lifts crushed 5-20% dark greys at Brightness 49 without washing out black)
+                drawRect(
+                    color = Color(0xFFE8F4FF).copy(alpha = scaledAlpha(0.085f)),
+                    blendMode = BlendMode.Screen
+                )
+                // 2. Cool HDR10 Specular Brilliance & Dynamic Contrast Expansion (zero lumen loss, no oversaturation)
                 drawRect(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            Color(0x28FFF4D8),
-                            Color(0x12FFD28A),
-                            Color.Transparent
+                            Color(0xFFF0F8FF).copy(alpha = scaledAlpha(0.20f)),
+                            Color(0xFFD2ECFF).copy(alpha = scaledAlpha(0.12f)),
+                            Color(0xFF90CAF9).copy(alpha = scaledAlpha(0.05f))
                         ),
-                        center = Offset(w * 0.5f, h * 0.44f),
-                        radius = maxRadius * 0.85f
+                        center = Offset(w * 0.5f, h * 0.46f),
+                        radius = maxRadius
                     ),
                     blendMode = BlendMode.Overlay
+                )
+            }
+
+            VisualEnhancerMode.PROJECTOR_BRIGHT -> {
+                // High-APL Cool Lumen Boost for dim rooms or dark masters
+                drawRect(
+                    color = Color(0xFFF2F9FF).copy(alpha = scaledAlpha(0.14f)),
+                    blendMode = BlendMode.Screen
                 )
                 drawRect(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            Color.Transparent,
-                            Color(0x1405070B),
-                            Color(0x36020305)
+                            Color(0xFFFFFFFF).copy(alpha = scaledAlpha(0.18f)),
+                            Color(0xFFDDF0FF).copy(alpha = scaledAlpha(0.10f)),
+                            Color.Transparent
                         ),
                         center = center,
                         radius = maxRadius
                     ),
-                    blendMode = BlendMode.Multiply
+                    blendMode = BlendMode.Overlay
+                )
+            }
+
+            VisualEnhancerMode.HDR -> {
+                // Cool-balanced HDR contrast pop
+                drawRect(
+                    color = Color(0xFFE6F2FF).copy(alpha = scaledAlpha(0.06f)),
+                    blendMode = BlendMode.Screen
+                )
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFFEAF6FF).copy(alpha = scaledAlpha(0.22f)),
+                            Color(0xFFBDE0FE).copy(alpha = scaledAlpha(0.11f)),
+                            Color.Transparent
+                        ),
+                        center = Offset(w * 0.5f, h * 0.45f),
+                        radius = maxRadius * 0.92f
+                    ),
+                    blendMode = BlendMode.Overlay
                 )
             }
 
             VisualEnhancerMode.CLEAR -> {
                 drawRect(
-                    color = Color(0x1AF4F9FF),
+                    color = Color(0xFFF0F8FF).copy(alpha = scaledAlpha(0.12f)),
                     blendMode = BlendMode.Overlay
                 )
                 drawRect(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0x14FFFFFF),
-                            Color.Transparent,
-                            Color(0x18000000)
-                        ),
-                        center = center,
-                        radius = maxRadius
-                    ),
-                    blendMode = BlendMode.Overlay
+                    color = Color(0xFFE8F4FF).copy(alpha = scaledAlpha(0.04f)),
+                    blendMode = BlendMode.Screen
                 )
             }
 
             VisualEnhancerMode.ULTRA_CLEAR -> {
+                // Cool-dominant crisp detail & punch
                 drawRect(
                     brush = Brush.linearGradient(
                         colors = listOf(
-                            Color(0x22FF6B4A),
-                            Color(0x18FFE17D),
-                            Color(0x2238B6FF)
+                            Color(0xFF64DFDF).copy(alpha = scaledAlpha(0.14f)),
+                            Color(0xFFF0F8FF).copy(alpha = scaledAlpha(0.18f)),
+                            Color(0xFF48BFE3).copy(alpha = scaledAlpha(0.15f))
                         ),
                         start = Offset.Zero,
                         end = Offset(w, h)
-                    ),
-                    blendMode = BlendMode.Overlay
-                )
-                drawRect(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0x1EFFFFFF),
-                            Color.Transparent,
-                            Color(0x2A000000)
-                        ),
-                        center = center,
-                        radius = maxRadius * 0.95f
                     ),
                     blendMode = BlendMode.Overlay
                 )
@@ -935,16 +995,52 @@ fun VisualEnhancerVideoLayer(
                 drawRect(
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            Color(0x2838B6FF),
-                            Color(0x1870D6FF),
-                            Color(0x241B4965)
+                            Color(0xFF48CAE4).copy(alpha = scaledAlpha(0.18f)),
+                            Color(0xFF90E0EF).copy(alpha = scaledAlpha(0.12f)),
+                            Color(0xFF0077B6).copy(alpha = scaledAlpha(0.14f))
                         )
                     ),
                     blendMode = BlendMode.Overlay
                 )
                 drawRect(
-                    color = Color(0x1248CAE4),
+                    color = Color(0xFFCAF0F8).copy(alpha = scaledAlpha(0.07f)),
                     blendMode = BlendMode.Screen
+                )
+            }
+
+            VisualEnhancerMode.NIGHT_CLARITY -> {
+                // Cool silver-blue shadow toe lift for dark scenes on Elfin Flip
+                drawRect(
+                    color = Color(0xFFEAF4FF).copy(alpha = scaledAlpha(0.13f)),
+                    blendMode = BlendMode.Screen
+                )
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFFE2F1FF).copy(alpha = scaledAlpha(0.14f)),
+                            Color(0xFFC4E0FF).copy(alpha = scaledAlpha(0.08f)),
+                            Color.Transparent
+                        ),
+                        center = center,
+                        radius = maxRadius
+                    ),
+                    blendMode = BlendMode.Overlay
+                )
+            }
+
+            VisualEnhancerMode.CINEMATIC -> {
+                // Cool silver-teal theatrical grade
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFFE0F2FE).copy(alpha = scaledAlpha(0.17f)),
+                            Color(0xFF7DD3FC).copy(alpha = scaledAlpha(0.10f)),
+                            Color(0xFF0C4A6E).copy(alpha = scaledAlpha(0.14f))
+                        ),
+                        center = Offset(w * 0.5f, h * 0.46f),
+                        radius = maxRadius * 0.95f
+                    ),
+                    blendMode = BlendMode.Overlay
                 )
             }
 
@@ -952,57 +1048,9 @@ fun VisualEnhancerVideoLayer(
                 drawRect(
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            Color(0x2CFF9E3D),
-                            Color(0x1EFFB703),
-                            Color(0x249B2226)
+                            Color(0xFFFFB703).copy(alpha = scaledAlpha(0.14f)),
+                            Color(0xFFFB8500).copy(alpha = scaledAlpha(0.10f))
                         )
-                    ),
-                    blendMode = BlendMode.Overlay
-                )
-                drawRect(
-                    color = Color(0x10FFB703),
-                    blendMode = BlendMode.Screen
-                )
-            }
-
-            VisualEnhancerMode.CINEMATIC -> {
-                drawRect(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0x24FFD194),
-                            Color(0x12D1913C),
-                            Color(0x280B2535)
-                        ),
-                        center = Offset(w * 0.5f, h * 0.45f),
-                        radius = maxRadius * 0.9f
-                    ),
-                    blendMode = BlendMode.Overlay
-                )
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        0f to Color(0x28000000),
-                        0.18f to Color.Transparent,
-                        0.82f to Color.Transparent,
-                        1f to Color(0x32000000)
-                    ),
-                    blendMode = BlendMode.Multiply
-                )
-            }
-
-            VisualEnhancerMode.NIGHT_CLARITY -> {
-                drawRect(
-                    color = Color(0x1EFFFFFF),
-                    blendMode = BlendMode.Screen
-                )
-                drawRect(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0x1AE8F1FF),
-                            Color(0x12C9DCF8),
-                            Color(0x0AFFFFFF)
-                        ),
-                        center = center,
-                        radius = maxRadius
                     ),
                     blendMode = BlendMode.Overlay
                 )
@@ -1025,10 +1073,14 @@ fun VisualEnhancerOverlay(
 ) {
     if (!visible) return
 
+    val context = LocalContext.current
     val modes = remember { VisualEnhancerMode.entries }
+    val intensities = remember { VisualEnhancerIntensity.entries }
     val cardFocusRequesters = remember(modes.size) { List(modes.size) { FocusRequester() } }
+    val intensityFocusRequesters = remember(intensities.size) { List(intensities.size) { FocusRequester() } }
     val applyAllFocusRequester = remember { FocusRequester() }
     val selectedIndex = remember(selectedMode) { modes.indexOf(selectedMode).coerceAtLeast(0) }
+    val currentIntensity = VisualEnhancerPreferences.currentIntensity
 
     LaunchedEffect(visible) {
         if (visible) {
@@ -1039,7 +1091,7 @@ fun VisualEnhancerOverlay(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.22f))
+            .background(Color.Black.copy(alpha = 0.18f))
             .onPreviewKeyEvent { event ->
                 if (event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK ||
                     event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ESCAPE
@@ -1057,13 +1109,13 @@ fun VisualEnhancerOverlay(
         Column(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .padding(end = 28.dp, top = 24.dp, bottom = 24.dp)
-                .width(430.dp)
+                .padding(end = 26.dp, top = 20.dp, bottom = 20.dp)
+                .width(410.dp)
                 .fillMaxHeight()
-                .clip(RoundedCornerShape(22.dp))
-                .background(Color(0xE614161C))
-                .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(22.dp))
-                .padding(horizontal = 20.dp, vertical = 18.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color(0xD810141C))
+                .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
+                .padding(horizontal = 18.dp, vertical = 15.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1072,40 +1124,42 @@ fun VisualEnhancerOverlay(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = null,
                         tint = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(17.dp)
                     )
                     Text(
                         text = "Visual Enhancer",
                         color = Color.White,
-                        fontSize = 18.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
 
-                if (selectedMode == VisualEnhancerMode.SMART_AUTO) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(Color.White.copy(alpha = 0.12f))
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = "Auto · ${effectiveAutoMode.title}",
-                            color = Color(0xFF90E0EF),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Color(0xFF38B6FF).copy(alpha = 0.18f))
+                        .padding(horizontal = 9.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = if (selectedMode == VisualEnhancerMode.SMART_AUTO) {
+                            "Auto · ${effectiveAutoMode.title}"
+                        } else {
+                            "Elfin Cool · ${currentIntensity.label}"
+                        },
+                        color = Color(0xFF90E0EF),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
@@ -1113,8 +1167,8 @@ fun VisualEnhancerOverlay(
                     .weight(1f)
                     .fillMaxWidth(),
                 contentPadding = PaddingValues(vertical = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 itemsIndexed(modes, key = { _, mode -> mode.id }) { index, mode ->
                     val isLastRow = index >= modes.size - 2
@@ -1123,20 +1177,90 @@ fun VisualEnhancerOverlay(
                         isSelected = mode == selectedMode,
                         effectiveAutoTitle = if (mode == VisualEnhancerMode.SMART_AUTO) effectiveAutoMode.title else null,
                         focusRequester = cardFocusRequesters[index],
-                        downFocusRequester = if (isLastRow) applyAllFocusRequester else null,
+                        downFocusRequester = if (isLastRow) intensityFocusRequesters[1] else null,
                         onFocused = { onPreviewMode(mode) },
                         onClick = { onSelectMode(mode) }
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 3-Step Intensity Selector (Subtle / Balanced / High Pop) for Elfin Flip Projector
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Strength",
+                    color = Color.White.copy(alpha = 0.68f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(end = 4.dp)
+                )
+                intensities.forEachIndexed { idx, level ->
+                    var pillFocused by remember { mutableStateOf(false) }
+                    val isSelected = currentIntensity == level
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(
+                                when {
+                                    pillFocused -> Color.White
+                                    isSelected -> Color(0xFF38B6FF).copy(alpha = 0.28f)
+                                    else -> Color.White.copy(alpha = 0.07f)
+                                }
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = when {
+                                    pillFocused -> Color.White
+                                    isSelected -> Color(0xFF38B6FF)
+                                    else -> Color.White.copy(alpha = 0.12f)
+                                },
+                                shape = RoundedCornerShape(999.dp)
+                            )
+                            .focusRequester(intensityFocusRequesters[idx])
+                            .focusProperties {
+                                up = cardFocusRequesters[modes.lastIndex]
+                                down = applyAllFocusRequester
+                            }
+                            .onFocusChanged { pillFocused = it.isFocused }
+                            .focusable()
+                            .onPreviewKeyEvent { event ->
+                                val isSelect = event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                                    event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER ||
+                                    event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                                if (isSelect && event.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
+                                    VisualEnhancerPreferences.saveIntensity(context, level)
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                            .clickable { VisualEnhancerPreferences.saveIntensity(context, level) }
+                            .padding(vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = level.label,
+                            color = if (pillFocused) Color.Black else Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected || pillFocused) FontWeight.SemiBold else FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             var applyRowFocused by remember { mutableStateOf(false) }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .background(
                         if (applyRowFocused) Color.White.copy(alpha = 0.14f)
                         else Color.White.copy(alpha = 0.05f)
@@ -1144,11 +1268,11 @@ fun VisualEnhancerOverlay(
                     .border(
                         width = if (applyRowFocused) 1.5.dp else 1.dp,
                         color = if (applyRowFocused) Color.White else Color.White.copy(alpha = 0.1f),
-                        shape = RoundedCornerShape(14.dp)
+                        shape = RoundedCornerShape(12.dp)
                     )
                     .focusRequester(applyAllFocusRequester)
                     .focusProperties {
-                        up = cardFocusRequesters[modes.lastIndex]
+                        up = intensityFocusRequesters[1]
                         down = FocusRequester.Cancel
                     }
                     .onFocusChanged { applyRowFocused = it.isFocused }
@@ -1165,7 +1289,7 @@ fun VisualEnhancerOverlay(
                         }
                     }
                     .clickable { onToggleApplyToAll(!applyToAll) }
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -1173,13 +1297,13 @@ fun VisualEnhancerOverlay(
                     Text(
                         text = "Apply to all",
                         color = Color.White,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
-                        text = "Keep this filter active across all videos",
+                        text = "Keep filter & strength active across all videos",
                         color = Color.White.copy(alpha = 0.56f),
-                        fontSize = 11.sp
+                        fontSize = 10.sp
                     )
                 }
 
@@ -1190,8 +1314,8 @@ fun VisualEnhancerOverlay(
                 )
                 Box(
                     modifier = Modifier
-                        .width(42.dp)
-                        .height(24.dp)
+                        .width(40.dp)
+                        .height(22.dp)
                         .clip(RoundedCornerShape(999.dp))
                         .background(trackColor)
                         .padding(3.dp),
@@ -1199,7 +1323,7 @@ fun VisualEnhancerOverlay(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(18.dp)
+                            .size(16.dp)
                             .clip(CircleShape)
                             .background(Color.White)
                     )
@@ -1225,12 +1349,12 @@ private fun VisualEnhancerPresetCard(
         animationSpec = tween(140),
         label = "presetCardScale"
     )
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(11.dp)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(82.dp)
+            .height(72.dp)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -1245,7 +1369,7 @@ private fun VisualEnhancerPresetCard(
                     },
                     color = when {
                         isFocused -> Color.White
-                        isSelected -> Color.White.copy(alpha = 0.78f)
+                        isSelected -> Color(0xFF38B6FF)
                         else -> Color.White.copy(alpha = 0.14f)
                     }
                 ),
@@ -1286,18 +1410,18 @@ private fun VisualEnhancerPresetCard(
                 tint = Color.White.copy(alpha = 0.72f),
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .padding(bottom = 14.dp)
-                    .size(22.dp)
+                    .padding(bottom = 12.dp)
+                    .size(20.dp)
             )
-        } else if (mode == VisualEnhancerMode.SMART_AUTO) {
+        } else if (mode == VisualEnhancerMode.SMART_AUTO || mode == VisualEnhancerMode.ELFIN_HDR10) {
             Icon(
                 imageVector = Icons.Default.AutoAwesome,
                 contentDescription = null,
                 tint = Color.White.copy(alpha = 0.9f),
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(start = 10.dp, top = 8.dp)
-                    .size(16.dp)
+                    .padding(start = 8.dp, top = 6.dp)
+                    .size(14.dp)
             )
         }
 
@@ -1305,26 +1429,26 @@ private fun VisualEnhancerPresetCard(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(6.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .padding(5.dp)
+                    .clip(RoundedCornerShape(5.dp))
                     .background(Color.White.copy(alpha = 0.92f))
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                    .padding(horizontal = 5.dp, vertical = 1.5.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Check,
                         contentDescription = null,
                         tint = Color.Black,
-                        modifier = Modifier.size(10.dp)
+                        modifier = Modifier.size(9.dp)
                     )
                     Text(
                         text = "ACTIVE",
                         color = Color.Black,
-                        fontSize = 8.sp,
+                        fontSize = 7.5.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -1338,11 +1462,11 @@ private fun VisualEnhancerPresetCard(
                 .background(
                     Brush.verticalGradient(
                         0f to Color.Transparent,
-                        0.45f to Color.Black.copy(alpha = 0.55f),
-                        1f to Color.Black.copy(alpha = 0.82f)
+                        0.4f to Color.Black.copy(alpha = 0.55f),
+                        1f to Color.Black.copy(alpha = 0.84f)
                     )
                 )
-                .padding(horizontal = 8.dp, vertical = 5.dp),
+                .padding(horizontal = 7.dp, vertical = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
@@ -1352,7 +1476,7 @@ private fun VisualEnhancerPresetCard(
                     mode.title
                 },
                 color = Color.White,
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 fontWeight = if (isSelected || isFocused) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -1381,14 +1505,14 @@ private fun PresetCardSceneArtwork(
             VisualEnhancerMode.SMART_AUTO -> {
                 drawRect(
                     brush = Brush.linearGradient(
-                        colors = listOf(Color(0xFF1D3557), Color(0xFF457B9D), Color(0xFFE07A5F)),
+                        colors = listOf(Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)),
                         start = Offset.Zero,
                         end = Offset(w, h)
                     )
                 )
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(Color(0x55FFF3B0), Color.Transparent),
+                        colors = listOf(Color(0x6690E0EF), Color.Transparent),
                         center = Offset(w * 0.72f, h * 0.32f),
                         radius = w * 0.45f
                     ),
@@ -1397,10 +1521,43 @@ private fun PresetCardSceneArtwork(
                 )
             }
 
+            VisualEnhancerMode.ELFIN_HDR10 -> {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color(0xFF0077B6), Color(0xFF00B4D8), Color(0xFF1D3557), Color(0xFF0B132B))
+                    )
+                )
+                val mountain = Path().apply {
+                    moveTo(0f, h * 0.78f)
+                    lineTo(w * 0.54f, h * 0.24f)
+                    lineTo(w * 0.76f, h * 0.36f)
+                    lineTo(w, h * 0.64f)
+                    lineTo(w, h)
+                    lineTo(0f, h)
+                    close()
+                }
+                drawPath(
+                    path = mountain,
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color(0xFFE0FBFC), Color(0xFF3D5A80), Color(0xFF0B132B))
+                    )
+                )
+            }
+
+            VisualEnhancerMode.PROJECTOR_BRIGHT -> {
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0xFFE0FBFC), Color(0xFF48CAE4), Color(0xFF023E8A)),
+                        center = Offset(w * 0.5f, h * 0.38f),
+                        radius = w * 0.72f
+                    )
+                )
+            }
+
             VisualEnhancerMode.HDR -> {
                 drawRect(
                     brush = Brush.verticalGradient(
-                        colors = listOf(Color(0xFFFF9E00), Color(0xFFE85D04), Color(0xFF1B263B), Color(0xFF0D1B2A))
+                        colors = listOf(Color(0xFF48CAE4), Color(0xFF0077B6), Color(0xFF1B263B), Color(0xFF0D1B2A))
                     )
                 )
                 val mountain = Path().apply {
@@ -1415,7 +1572,7 @@ private fun PresetCardSceneArtwork(
                 drawPath(
                     path = mountain,
                     brush = Brush.verticalGradient(
-                        colors = listOf(Color(0xFFFFD166), Color(0xFF415A77), Color(0xFF0D1B2A))
+                        colors = listOf(Color(0xFFCAF0F8), Color(0xFF415A77), Color(0xFF0D1B2A))
                     )
                 )
             }
@@ -1433,17 +1590,12 @@ private fun PresetCardSceneArtwork(
                     radius = h * 0.42f,
                     center = Offset(w * 0.36f, h * 0.4f)
                 )
-                drawCircle(
-                    color = Color(0x33D8F3DC),
-                    radius = h * 0.28f,
-                    center = Offset(w * 0.68f, h * 0.5f)
-                )
             }
 
             VisualEnhancerMode.ULTRA_CLEAR -> {
                 drawRect(
                     brush = Brush.radialGradient(
-                        colors = listOf(Color(0xFFF72585), Color(0xFFFF6D00), Color(0xFF102A43), Color(0xFF0A192F)),
+                        colors = listOf(Color(0xFF4CC9F0), Color(0xFF4361EE), Color(0xFF3A0CA3), Color(0xFF0A192F)),
                         center = Offset(w * 0.52f, h * 0.48f),
                         radius = w * 0.65f
                     )
@@ -1475,13 +1627,13 @@ private fun PresetCardSceneArtwork(
             VisualEnhancerMode.CINEMATIC -> {
                 drawRect(
                     brush = Brush.horizontalGradient(
-                        0f to Color(0xFF1A110B),
-                        0.52f to Color(0xFF6C3D1E),
-                        1f to Color(0xFFE09F3E)
+                        0f to Color(0xFF0B132B),
+                        0.52f to Color(0xFF1C2541),
+                        1f to Color(0xFF5BC0BE)
                     )
                 )
                 drawRoundRect(
-                    color = Color(0x44FFF3B0),
+                    color = Color(0x55E0FBFC),
                     topLeft = Offset(w * 0.64f, h * 0.14f),
                     size = Size(w * 0.26f, h * 0.58f),
                     cornerRadius = CornerRadius(4f, 4f),

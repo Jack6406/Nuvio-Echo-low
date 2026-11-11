@@ -124,8 +124,19 @@ fun AboutSettingsContent(
                                 contentDescription = stringResource(R.string.cd_nuvio_logo)
                             )
 
+                            val rawCredit = stringResource(R.string.about_made_with_love)
+                            val sahilCredit = remember(rawCredit) {
+                                if (rawCredit.contains("Laking22", ignoreCase = true) ||
+                                    rawCredit.contains("Laking", ignoreCase = true)
+                                ) {
+                                    rawCredit.replace(Regex("(?i)laking22|laking"), "Sahil")
+                                } else {
+                                    "Made by Sahil and friends 😉"
+                                }
+                            }
+
                             Text(
-                                text = stringResource(R.string.about_made_with_love),
+                                text = sahilCredit,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = NuvioTheme.colors.TextSecondary,
                                 textAlign = TextAlign.Center
@@ -157,22 +168,18 @@ fun AboutSettingsContent(
                                     Modifier
                                 },
                                 onClick = {
-                                    val intent = Intent(
-                                        Intent.ACTION_VIEW,
-                                        Uri.parse("https://nuvio.tv/privacy-policy")
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse("https://nuvio.tv/privacy"))
                                     )
-                                    context.startActivity(intent)
                                 }
                             )
 
-                            if (AppFeaturePolicy.supportNuvioEnabled) {
-                                SettingsActionRow(
-                                    title = stringResource(R.string.support_nuvio_name),
-                                    subtitle = stringResource(R.string.about_supporters_contributors_subtitle),
-                                    trailingIcon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                    onClick = onNavigateToSupportersContributors
-                                )
-                            }
+                            SettingsActionRow(
+                                title = stringResource(R.string.about_supporters_contributors),
+                                subtitle = stringResource(R.string.about_supporters_contributors_subtitle),
+                                trailingIcon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                onClick = onNavigateToSupportersContributors
+                            )
 
                             SettingsActionRow(
                                 title = stringResource(R.string.about_licenses_attributions),

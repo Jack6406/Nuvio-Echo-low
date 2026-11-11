@@ -26,7 +26,6 @@ import kotlinx.coroutines.launch
 
 internal fun PlayerRuntimeController.fetchMetaDetails(id: String?, type: String?) {
     if (id.isNullOrBlank() || type.isNullOrBlank()) return
-
     metaFetchJob = scope.launch {
         when (
             val result = metaRepository.getMetaFromAllAddons(type = type, id = id)
@@ -68,7 +67,9 @@ internal fun PlayerRuntimeController.initializeCloudPlaybackSequence() {
 
 internal fun PlayerRuntimeController.applyMetaDetails(meta: Meta) {
     metaVideos = meta.videos
-    metaGenres = meta.genres
+    if (meta.genres.isNotEmpty()) {
+        metaGenres = meta.genres
+    }
     metaCountry = meta.country
     // Fill in content language from meta if not provided via navigation args.
     if (contentLanguage == null) {
@@ -78,9 +79,17 @@ internal fun PlayerRuntimeController.applyMetaDetails(meta: Meta) {
 
     recomputeNextEpisode(resetVisibility = false)
     _uiState.update { state ->
+        val existingHasPhotos = state.castMembers.any { !it.photo.isNullOrBlank() }
+        val incomingHasPhotos = meta.castMembers.any { !it.photo.isNullOrBlank() }
+        val resolvedCast = when {
+            incomingHasPhotos -> meta.castMembers
+            existingHasPhotos -> state.castMembers
+            meta.castMembers.isNotEmpty() -> meta.castMembers
+            else -> state.castMembers
+        }
         state.copy(
             description = description ?: state.description,
-            castMembers = if (meta.castMembers.isNotEmpty()) meta.castMembers else state.castMembers,
+            castMembers = resolvedCast,
             isNextEpisodeMetadataResolved = true
         )
     }
@@ -120,7 +129,6 @@ internal fun PlayerRuntimeController.updateEpisodeDescription() {
 private suspend fun PlayerRuntimeController.enrichDescriptionFromTmdb(id: String?, type: String?) {
     if (id.isNullOrBlank() || type.isNullOrBlank()) return
     val settings = tmdbSettingsDataStore.settings.first()
-    if (!settings.enabled || !settings.useBasicInfo) return
 
     val tmdbId = runCatching { tmdbService.ensureTmdbId(id, type) }.getOrNull() ?: return
     val contentType = when (type.lowercase()) {
@@ -134,6 +142,25 @@ private suspend fun PlayerRuntimeController.enrichDescriptionFromTmdb(id: String
             language = settings.language
         )
     }.getOrNull() ?: return
+
+    if (metaGenres.isEmpty() && enrichment.genres.isNotEmpty()) {
+        metaGenres = enrichment.genres
+    }
+
+    // Always enrich cast with TMDB actor photos & character names when available so the Pause Overlay
+    // displays actor photos even if the addon only returned bare actor names.
+    if (enrichment.castMembers.isNotEmpty()) {
+        _uiState.update { state ->
+            val currentHasPhotos = state.castMembers.any { !it.photo.isNullOrBlank() }
+            if (state.castMembers.isEmpty() || !currentHasPhotos) {
+                state.copy(castMembers = enrichment.castMembers)
+            } else {
+                state
+            }
+        }
+    }
+
+    if (!settings.enabled) return
 
     val isSeries = type.lowercase() in listOf("series", "tv")
     val season = currentSeason
@@ -176,14 +203,6 @@ private suspend fun PlayerRuntimeController.enrichDescriptionFromTmdb(id: String
         val tmdbEpisodeTitle = episodeEnrichment?.title
         if (!tmdbEpisodeTitle.isNullOrBlank()) {
             _uiState.update { it.copy(currentEpisodeTitle = tmdbEpisodeTitle) }
-        }
-    }
-
-    // Enrich cast from TMDB if addon didn't provide any.
-    if (settings.useBasicInfo && enrichment.castMembers.isNotEmpty()) {
-        _uiState.update { state ->
-            if (state.castMembers.isEmpty()) state.copy(castMembers = enrichment.castMembers)
-            else state
         }
     }
 
@@ -278,7 +297,6 @@ internal fun PlayerRuntimeController.recomputeNextEpisode(resetVisibility: Boole
         clearNextEpisodeAndCancelPostPlay()
         return
     }
-
     val hasAired = PlayerNextEpisodeRules.hasEpisodeAired(resolvedNext.released)
     val nextInfo = NextEpisodeInfo(
         videoId = resolvedNext.id,
@@ -374,6 +392,7 @@ internal fun PlayerRuntimeController.resetPostPlayOverlayState(clearEpisode: Boo
 internal fun PlayerRuntimeController.evaluatePostPlayOverlayVisibility(positionMs: Long, durationMs: Long) {
     if (_playbackTimeline.value.isLive) return
     if (!hasRenderedFirstFrame) return
+
     // Short debrid/error clips must never arm next-episode auto-play (see #2819).
     // Prefer the largest known duration; the per-poll value can drop transiently.
     val effectiveDurationEarly = maxOf(durationMs, lastKnownDuration)
@@ -404,9 +423,6 @@ internal fun PlayerRuntimeController.evaluatePostPlayOverlayVisibility(positionM
 
     val effectiveDuration = effectiveDurationEarly
 
-    // The next episode's source is found ahead of its card, so the card offers Play only once there's something to
-    // play. The search can take as long as auto-play's timeout, so it starts that much earlier again (with
-    // a 30 s head start the card came about 10 s late); "Preload next episode sources" starts it earlier still.
     if (preparedForNextEpisode() == null) {
         val timeoutMs = streamAutoPlayTimeoutSecondsSetting.toLong().coerceIn(0L, MAX_TIMEOUT_LEAD_S) * 1_000L
         val preloadLeadMs = if (preloadNextEpisodeSourcesSetting) timeoutMs else 0L
@@ -453,7 +469,6 @@ internal fun PlayerRuntimeController.evaluatePostPlayOverlayVisibility(positionM
         if (isUnplayable) return
 
         if (preparedForNextEpisode() == null && !contentType.equals("cloud", ignoreCase = true)) {
-            // Its source is still being found: the card shows once it is.
             nextEpisodeCardWaiting = true
             prepareNextEpisode()
             return
@@ -505,9 +520,6 @@ internal fun PlayerRuntimeController.updateActiveSkipInterval(positionMs: Long) 
         return
     }
 
-    // Don't evaluate skip intervals until player settings are loaded from DataStore.
-    // Without this, autoSkipSegmentTypes is empty on first iterations, causing the
-    // skip button to appear instead of auto-skipping.
     if (!playerSettingsInitialized) return
 
     val active = nextActiveSkipInterval(skipIntervals, positionMs)
@@ -542,7 +554,6 @@ private fun SkipInterval.autoSkipKey(): String =
     "$provider:$type:$startTime:$endTime"
 
 internal fun PlayerRuntimeController.tryShowParentalGuide() {
-    // Shown once the intro is over and playback really begins.
     if (introHold) return
     val state = _uiState.value
     if (parentalGuideFirstPlayAtMs == 0L) parentalGuideFirstPlayAtMs = SystemClock.elapsedRealtime()
@@ -583,7 +594,6 @@ internal fun PlayerRuntimeController.fetchParentalGuide(id: String?, type: Strin
         val summary = parentalGuideRepository.getDetailedGuide(request) ?: return@launch
         val warnings = buildList {
             summary.rating?.let { rating ->
-                // "PG-13" + "13+"; a bare number ("16") is already the age, so it becomes "16+".
                 val age = AgeRatings.label(rating)
                 val numeric = AgeRatings.isNumericOnly(rating)
                 add(
@@ -621,7 +631,6 @@ private fun PlayerRuntimeController.publishParentalWarnings(warnings: List<Paren
         )
     }
 
-    // A guide that arrives well after playback began would pop up mid-scene; skip it then.
     val firstPlayAt = parentalGuideFirstPlayAtMs
     val late = firstPlayAt != 0L && SystemClock.elapsedRealtime() - firstPlayAt > PARENTAL_GUIDE_LATE_MS
     if (_uiState.value.isPlaying && !late) {
@@ -660,12 +669,6 @@ private fun ContentNote.labelRes(): Int = when (this) {
     ContentNote.BODY_HORROR -> R.string.parental_note_body_horror
 }
 
-// ── Playback intro ────────────────────────────────────────────────────────────────────────
-
-/**
- * Holds playback while the intro plays: if the stream is ready first, it's paused the moment it
- * starts and resumed by [releaseIntroHold]. Only watches the player while an intro is running.
- */
 internal fun PlayerRuntimeController.startIntroHold() {
     if (introHold) return
     introHold = true
@@ -681,12 +684,10 @@ internal fun PlayerRuntimeController.startIntroHold() {
     }
 }
 
-/** Anything that starts a stream in the player plays the intro too, while it's switched on. */
 internal fun PlayerRuntimeController.startIntroForNewStream() {
     if (playbackIntroEnabled) PlaybackIntroState.start()
 }
 
-/** Ends the hold; playback held back during the intro starts now. */
 internal fun PlayerRuntimeController.releaseIntroHold() {
     if (!introHold) return
     introHold = false

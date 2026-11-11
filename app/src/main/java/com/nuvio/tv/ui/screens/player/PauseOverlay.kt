@@ -2,10 +2,13 @@ package com.nuvio.tv.ui.screens.player
 
 import android.text.format.DateFormat
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,11 +18,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,21 +43,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.nuvio.tv.R
+import com.nuvio.tv.domain.model.MetaCastMember
 import com.nuvio.tv.ui.util.contentTextDirection
 import com.nuvio.tv.ui.util.localizeEpisodeTitle
 import kotlinx.coroutines.delay
 import java.util.Date
 
 /**
- * Shown once playback has been paused for a while: what's playing, in the hero's quiet style. A small "Paused", the
- * logo, one line of details, the synopsis and how much is left, over a shade in the lower-left corner so the paused
- * picture stays visible. Any key dismisses it (the player handles that).
+ * Shown once playback has been paused: shifts the title, synopsis, and remaining-time bar upward
+ * and displays the Cast row (circular actor photo + Actor Name + Character role) directly below
+ * the remaining-time bar.
  */
 @Composable
 fun PauseOverlay(
@@ -67,8 +76,15 @@ fun PauseOverlay(
     modifier: Modifier = Modifier,
     positionMs: Long = 0L,
     durationMs: Long = 0L,
-    showClock: Boolean = true
+    showClock: Boolean = true,
+    castMembers: List<MetaCastMember> = emptyList()
 ) {
+    val playerViewModel: PlayerViewModel = hiltViewModel()
+    val playerUiState by playerViewModel.uiState.collectAsState()
+    val effectiveCast = remember(castMembers, playerUiState.castMembers) {
+        (if (castMembers.isNotEmpty()) castMembers else playerUiState.castMembers).take(8)
+    }
+
     PlayerOverlayScaffold(
         visible = visible,
         onDismiss = onClose,
@@ -81,73 +97,173 @@ fun PauseOverlay(
             if (showClock) PauseOverlayClock(modifier = Modifier.padding(top = 36.dp, end = 52.dp))
         }
     ) {
-        // Darkest in the lower-left, behind the text, and clear towards the top right.
+        // Darkest in the lower-left, behind the text and cast row, and clear towards the top right.
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.horizontalGradient(
-                        0f to Color.Black.copy(alpha = 0.72f),
-                        0.5f to Color.Black.copy(alpha = 0.32f),
+                        0f to Color.Black.copy(alpha = 0.76f),
+                        0.55f to Color.Black.copy(alpha = 0.36f),
                         1f to Color.Transparent
                     )
                 )
                 .background(
                     Brush.verticalGradient(
                         0f to Color.Transparent,
-                        0.45f to Color.Transparent,
-                        1f to Color.Black.copy(alpha = 0.6f)
+                        0.38f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.72f)
                     )
                 )
         )
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 64.dp, bottom = 64.dp)
-                .fillMaxWidth(0.46f),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(
+                    start = 58.dp,
+                    end = 48.dp,
+                    bottom = if (effectiveCast.isNotEmpty()) 36.dp else 60.dp
+                )
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Rounded.Pause,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier.size(14.dp)
-                )
-                Text(
-                    text = stringResource(R.string.pause_label).uppercase(),
-                    color = Color.White.copy(alpha = 0.7f),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 2.sp,
-                    modifier = Modifier.padding(start = 6.dp)
-                )
+            Column(
+                modifier = Modifier.fillMaxWidth(0.48f),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Rounded.Pause,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.7f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = stringResource(R.string.pause_label).uppercase(),
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 2.sp,
+                        modifier = Modifier.padding(start = 6.dp)
+                    )
+                }
+                PauseTitle(title = title, logo = logo)
+                val details = pauseDetails(episodeTitle, season, episode, year, type)
+                if (details.isNotBlank()) {
+                    Text(
+                        text = details,
+                        color = Color.White.copy(alpha = 0.82f),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (!description.isNullOrBlank()) {
+                    Text(
+                        text = description,
+                        style = androidx.compose.ui.text.TextStyle(textDirection = description.contentTextDirection()),
+                        color = Color.White.copy(alpha = 0.74f),
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                        maxLines = if (effectiveCast.isNotEmpty()) 3 else 4,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (durationMs > 0L) {
+                    PauseProgress(positionMs = positionMs, durationMs = durationMs)
+                }
             }
-            PauseTitle(title = title, logo = logo)
-            val details = pauseDetails(episodeTitle, season, episode, year, type)
-            if (details.isNotBlank()) {
-                Text(
-                    text = details,
-                    color = Color.White.copy(alpha = 0.82f),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+
+            if (effectiveCast.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                PauseCastSection(castMembers = effectiveCast)
             }
-            if (!description.isNullOrBlank()) {
-                Text(
-                    text = description,
-                    style = androidx.compose.ui.text.TextStyle(textDirection = description.contentTextDirection()),
-                    color = Color.White.copy(alpha = 0.74f),
-                    fontSize = 15.sp,
-                    lineHeight = 22.sp,
-                    maxLines = 4,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            if (durationMs > 0L) {
-                PauseProgress(positionMs = positionMs, durationMs = durationMs)
+        }
+    }
+}
+
+@Composable
+private fun PauseCastSection(castMembers: List<MetaCastMember>) {
+    val context = LocalContext.current
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(0.88f),
+        contentPadding = PaddingValues(end = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        items(castMembers, key = { "${it.name}:${it.character.orEmpty()}" }) { member ->
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color.Black.copy(alpha = 0.38f))
+                    .border(0.75.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(999.dp))
+                    .padding(start = 5.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val photoUrl = member.photo?.takeIf { it.isNotBlank() }
+                    if (photoUrl != null) {
+                        val request = remember(context, photoUrl) {
+                            ImageRequest.Builder(context)
+                                .data(photoUrl)
+                                .size(96, 96)
+                                .memoryCacheKey("pause_cast_$photoUrl")
+                                .crossfade(true)
+                                .build()
+                        }
+                        AsyncImage(
+                            model = request,
+                            contentDescription = member.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        val initials = member.name
+                            .split(" ")
+                            .mapNotNull { it.firstOrNull()?.uppercaseChar() }
+                            .take(2)
+                            .joinToString("")
+                        Text(
+                            text = initials.ifBlank { "?" },
+                            color = Color.White.copy(alpha = 0.78f),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                Column(
+                    modifier = Modifier.widthIn(max = 136.dp),
+                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                ) {
+                    Text(
+                        text = member.name,
+                        color = Color.White.copy(alpha = 0.94f),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    val role = member.character?.takeIf { it.isNotBlank() }
+                    if (role != null) {
+                        Text(
+                            text = role,
+                            color = Color.White.copy(alpha = 0.62f),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Normal,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
             }
         }
     }
@@ -164,17 +280,17 @@ private fun PauseTitle(title: String, logo: String?) {
             contentScale = ContentScale.Fit,
             alignment = Alignment.BottomStart,
             onError = { logoFailed = true },
-            modifier = Modifier.height(72.dp).widthIn(max = 340.dp)
+            modifier = Modifier.height(64.dp).widthIn(max = 320.dp)
         )
     } else {
         Text(
             text = title,
             color = Color.White,
-            fontSize = 34.sp,
+            fontSize = 30.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.heightIn(min = 40.dp)
+            modifier = Modifier.heightIn(min = 36.dp)
         )
     }
 }
@@ -204,7 +320,7 @@ private fun PauseProgress(positionMs: Long, durationMs: Long) {
         stringResource(R.string.pause_left_minutes, leftMinutes.coerceAtLeast(1))
     }
     Row(
-        modifier = Modifier.padding(top = 6.dp),
+        modifier = Modifier.padding(top = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
