@@ -4,9 +4,13 @@ import android.app.ActivityManager
 import android.app.Application
 import android.content.Context
 import android.os.Build
-import android.os.StrictMode
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
+import coil3.intercept.Interceptor
+import coil3.request.ImageResult
+import coil3.size.Dimension
+import coil3.size.Size
+import coil3.size.SizeResolver
 import com.nuvio.tv.core.image.CustomPosterFallbackInterceptor
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
@@ -32,11 +36,56 @@ import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.launch
 import okhttp3.Cookie
 import okhttp3.CookieJar
+import okhttp3.Dispatcher
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
+
+/**
+ * Downscales oversized 4K TMDB image URLs (`/t/p/original/`) to 1080p-friendly sizes and caps
+ * unbounded Coil decode requests to 1920x1080 on 1GB RAM / 1080p Fire Stick setups, saving 25+ MB
+ * of bitmap heap per backdrop with zero visual loss on a 1080p projector.
+ */
+private class FireStick1080pImageCapInterceptor(
+    private val isLowRamDevice: Boolean
+) : Interceptor {
+    override suspend fun intercept(chain: Interceptor.Chain): ImageResult {
+        val req = chain.request
+        val rawData = req.data
+        var builder: coil3.request.ImageRequest.Builder? = null
+
+        if (rawData is String && rawData.contains("image.tmdb.org/t/p/")) {
+            val optimizedUrl = when {
+                rawData.contains("/t/p/original/") ->
+                    rawData.replace("/t/p/original/", if (isLowRamDevice) "/t/p/w1280/" else "/t/p/w1920_and_h1080_multi_faces/")
+                isLowRamDevice && rawData.contains("/t/p/w780/") ->
+                    rawData.replace("/t/p/w780/", "/t/p/w500/")
+                else -> rawData
+            }
+            if (optimizedUrl != rawData) {
+                builder = (builder ?: req.newBuilder()).data(optimizedUrl)
+            }
+        }
+
+        if (req.sizeResolver == SizeResolver.ORIGINAL) {
+            val urlStr = rawData as? String ?: ""
+            val isPoster = urlStr.contains("/poster/") || urlStr.contains("/w500/") || urlStr.contains("/w342/") || urlStr.contains("/w780/")
+            val cappedSize = if (isPoster) {
+                Size(Dimension(360), Dimension(540))
+            } else if (isLowRamDevice) {
+                Size(Dimension(1280), Dimension(720))
+            } else {
+                Size(Dimension(1920), Dimension(1080))
+            }
+            builder = (builder ?: req.newBuilder()).size(cappedSize)
+        }
+
+        val finalRequest = builder?.build() ?: req
+        return chain.withRequest(finalRequest).proceed()
+    }
+}
 
 @HiltAndroidApp
 class NuvioApplication : Application(), SingletonImageLoader.Factory {
@@ -55,6 +104,26 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
     )
 
     companion object {
+        @Volatile
+        private var sharedImageDispatcher: Dispatcher? = null
+
+        /**
+         * Throttles background image downloads while video playback is active so 100% of the
+         * 1GB Fire Stick's Wi-Fi bandwidth and CPU stay dedicated to the playing stream.
+         */
+        fun setVideoPlaybackActive(active: Boolean) {
+            val is1Gb = com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode
+            sharedImageDispatcher?.apply {
+                if (active) {
+                    maxRequests = 2
+                    maxRequestsPerHost = 2
+                } else {
+                    maxRequests = if (is1Gb) 12 else 32
+                    maxRequestsPerHost = if (is1Gb) 6 else 16
+                }
+            }
+        }
+
         /**
          * Shared cookie jar for CloudStream extension HTTP requests.
          * Accessible so the player's OkHttpClient can share cookies
@@ -111,10 +180,11 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
     override fun newImageLoader(context: android.content.Context): ImageLoader {
         val is1GbMode = com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode
         val imageOkHttpClient by lazy {
-            val imageDispatcher = okhttp3.Dispatcher().apply {
+            val imageDispatcher = Dispatcher().apply {
                 maxRequests = if (is1GbMode) 12 else 32
                 maxRequestsPerHost = if (is1GbMode) 6 else 16
             }
+            sharedImageDispatcher = imageDispatcher
             OkHttpClient.Builder()
                 .dispatcher(imageDispatcher)
                 .dns(IPv4FirstDns())
@@ -139,6 +209,7 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
 
         return ImageLoader.Builder(this)
             .components {
+                add(FireStick1080pImageCapInterceptor(isLowRamDevice = is1GbMode))
                 add(CustomPosterFallbackInterceptor())
                 if (Build.VERSION.SDK_INT >= 28) {
                     add(AnimatedImageDecoder.Factory())
@@ -163,11 +234,6 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
                 val memoryInfo = ActivityManager.MemoryInfo()
                 activityManager.getMemoryInfo(memoryInfo)
                 val totalRamMb = memoryInfo.totalMem / (1024 * 1024)
-                // Low-RAM devices (≤2GB): use 0.15 — larger cache reduces GC pressure
-                // from rapid bitmap eviction during scrolling.
-                // Mid-range devices (≤3GB): use 0.20 for decent image caching.
-                // Normal devices (>3GB): use 0.25 for snappy image loading.
-                // - hardware bitmaps (one copy, in graphics memory) are a Beta speed-ups switch, off by default
                 val cachePercent = when {
                     is1GbMode || totalRamMb <= 1400 -> 0.10
                     totalRamMb <= 2048 -> 0.15

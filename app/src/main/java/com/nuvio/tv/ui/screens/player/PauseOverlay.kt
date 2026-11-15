@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -83,6 +84,12 @@ fun PauseOverlay(
     val playerUiState by playerViewModel.uiState.collectAsState()
     val effectiveCast = remember(castMembers, playerUiState.castMembers) {
         (if (castMembers.isNotEmpty()) castMembers else playerUiState.castMembers).take(8)
+    }
+    DisposableEffect(visible) {
+        com.nuvio.tv.NuvioApplication.setVideoPlaybackActive(!visible)
+        onDispose {
+            com.nuvio.tv.NuvioApplication.setVideoPlaybackActive(false)
+        }
     }
 
     PlayerOverlayScaffold(
