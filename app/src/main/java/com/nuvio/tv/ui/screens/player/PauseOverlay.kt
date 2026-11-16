@@ -60,7 +60,8 @@ import java.util.Date
 /**
  * Shown once playback has been paused: shifts the title, synopsis, and remaining-time bar upward
  * and displays the Cast row (circular actor photo + Actor Name + Character role) directly below
- * the remaining-time bar.
+ * the remaining-time bar. Also manages player-lifetime RAM eviction (#5) and automatic subtitle
+ * lift when player controls are open (#11).
  */
 @Composable
 fun PauseOverlay(
@@ -80,15 +81,41 @@ fun PauseOverlay(
     showClock: Boolean = true,
     castMembers: List<MetaCastMember> = emptyList()
 ) {
+    val context = LocalContext.current
     val playerViewModel: PlayerViewModel = hiltViewModel()
     val playerUiState by playerViewModel.uiState.collectAsState()
     val effectiveCast = remember(castMembers, playerUiState.castMembers) {
         (if (castMembers.isNotEmpty()) castMembers else playerUiState.castMembers).take(8)
     }
-    DisposableEffect(visible) {
-        com.nuvio.tv.NuvioApplication.setVideoPlaybackActive(!visible)
+
+    // #5: Aggressive RAM eviction when entering PlayerScreen; restores normal image queue on exit.
+    DisposableEffect(Unit) {
+        com.nuvio.tv.NuvioApplication.onPlayerEntered(context)
         onDispose {
             com.nuvio.tv.NuvioApplication.setVideoPlaybackActive(false)
+        }
+    }
+
+    DisposableEffect(visible) {
+        com.nuvio.tv.NuvioApplication.setVideoPlaybackActive(!visible)
+        onDispose { }
+    }
+
+    // #11: Subtitle Auto-Lift When Controls Are Open — shifts subtitles up above the progress bar
+    // and stream badges whenever player controls are visible, and restores them when controls hide.
+    LaunchedEffect(
+        playerUiState.showControls,
+        playerUiState.subtitleStyle.verticalOffset,
+        playerUiState.currentStreamUrl
+    ) {
+        val subView = playerViewModel.controller.exoPlayerView?.subtitleView ?: return@LaunchedEffect
+        val userOffset = playerUiState.subtitleStyle.verticalOffset
+        val effectiveOffset = if (playerUiState.showControls) userOffset + 38 else userOffset
+        val bottomPaddingFraction = (0.06f + (effectiveOffset / 250f)).coerceIn(0f, 0.42f)
+        subView.setBottomPaddingFraction(bottomPaddingFraction)
+        subView.post {
+            val extraPadding = (subView.height * (effectiveOffset / 400f)).toInt().coerceAtLeast(0)
+            subView.setPadding(subView.paddingLeft, subView.paddingTop, subView.paddingRight, extraPadding)
         }
     }
 

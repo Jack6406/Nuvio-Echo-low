@@ -105,6 +105,9 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
 
     companion object {
         @Volatile
+        private var appInstance: NuvioApplication? = null
+
+        @Volatile
         private var sharedImageDispatcher: Dispatcher? = null
 
         /**
@@ -121,6 +124,23 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
                     maxRequests = if (is1Gb) 12 else 32
                     maxRequestsPerHost = if (is1Gb) 6 else 16
                 }
+            }
+        }
+
+        /**
+         * Aggressive RAM eviction (#5): called when entering PlayerScreen to flush in-memory Home/Details
+         * bitmap caches, ambient color-wash caches, idle trailer decoders, and secondary TMDB caches
+         * (while preserving disk-cached posters so pressing Back remains instant).
+         */
+        fun onPlayerEntered(context: Context) {
+            setVideoPlaybackActive(true)
+            runCatching { SingletonImageLoader.get(context.applicationContext).memoryCache?.clear() }
+            runCatching { com.nuvio.tv.ui.newlook.home.clearAmbientWashCache() }
+            runCatching { com.nuvio.tv.ui.newlook.home.clearAmbientTintCache() }
+            val app = appInstance
+            if (app != null) {
+                runCatching { app.tmdbMetadataService.get().trimMemoryCaches() }
+                runCatching { app.trailerPlayerPool.get().yield() }
             }
         }
 
@@ -154,6 +174,7 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
     }
 
     override fun onCreate() {
+        appInstance = this
         // Before anything else: the TMDB and Gemini keys and low-RAM tier are read synchronously from here on.
         com.nuvio.tv.core.apikeys.ApiKeys.init(this)
         com.nuvio.tv.core.runtime.DeviceMemoryTier.init(this)
@@ -161,20 +182,20 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
         com.nuvio.tv.core.runtime.DeviceMemoryTier.overrideMode = imagePerformancePreferences.lowRamMode
         // Eagerly touch customBackdropStore so its StateFlow populates the in-memory mirror.
         customBackdropStore.overrides.value
-        SentryInitializer.start(this, sentrySettingsDataStore)
         PluginRuntimeHooks.onApplicationCreate(this)
-        androidTvChannelSyncService.start()
-        // Off the main thread and after launch: building the stream stack (repositories, HTTP
-        // clients, plugin manager) is not free on a TV CPU and used to run before the first frame.
-        startupScope.launch {
-            kotlinx.coroutines.delay(3_000)
-            streamPrefetcher.get().warmUpAddonHosts()
-        }
         // Load locale synchronously so it's available before Activity.attachBaseContext.
-        // SharedPreferences reads are fast (cached in memory after first access).
         val tag = getSharedPreferences("app_locale", Context.MODE_PRIVATE)
             .getString("locale_tag", null)
         LocaleCache.localeTag = tag ?: ""
+
+        // Fast Cold-Start (#14): Defer Sentry init, Android TV channel sync, and addon host warmup
+        // until 5 seconds after launch so 100% of CPU goes to rendering Profile Selection and Home first.
+        startupScope.launch {
+            kotlinx.coroutines.delay(5_000L)
+            runCatching { SentryInitializer.start(this@NuvioApplication, sentrySettingsDataStore) }
+            runCatching { androidTvChannelSyncService.start() }
+            runCatching { streamPrefetcher.get().warmUpAddonHosts() }
+        }
     }
 
     override fun newImageLoader(context: android.content.Context): ImageLoader {

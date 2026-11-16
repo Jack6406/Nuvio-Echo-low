@@ -54,9 +54,13 @@ import com.nuvio.tv.data.local.SubtitleStyleSettings
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 
+private val COLOR_COOL_SILVER = Color(0xFFCFDCE8)
+private val COLOR_CINEMA_SLATE = Color(0xFFAFC0D0)
+
 private val PANEL_TEXT_COLORS = listOf(
     Color.White,
-    Color(0xFFD9D9D9),
+    COLOR_COOL_SILVER,
+    COLOR_CINEMA_SLATE,
     Color(0xFFFFD700),
     Color(0xFF00E5FF),
     Color(0xFFFF5C5C),
@@ -65,15 +69,25 @@ private val PANEL_TEXT_COLORS = listOf(
 
 private val PANEL_OUTLINE_COLORS = listOf(
     Color.Black,
+    Color(0xFF0F172A),
     Color.White,
     Color(0xFF00E5FF),
     Color(0xFFFF5C5C)
 )
 
-private val StyleCardWidth = 220.dp
+private val StyleCardWidth = 228.dp
 private val StyleCardHeight = 102.dp
 private val StyleCardGap = NuvioTheme.spacing.md
 private val StyleGridWidth = (StyleCardWidth * 3) + (StyleCardGap * 2)
+
+private fun subtitleColorLabel(colorArgb: Int): String? {
+    val rgb = colorArgb and 0x00FFFFFF
+    return when (rgb) {
+        COLOR_COOL_SILVER.toArgb() and 0x00FFFFFF -> "Cool Silver"
+        COLOR_CINEMA_SLATE.toArgb() and 0x00FFFFFF -> "Cinema Slate"
+        else -> null
+    }
+}
 
 @Composable
 internal fun SubtitleStyleSidePanel(
@@ -83,11 +97,6 @@ internal fun SubtitleStyleSidePanel(
     isStyleDisabledByLibass: Boolean = false
 ) {
     val firstItemFocusRequester = remember { FocusRequester() }
-    val dispatchStyleEvent: (PlayerEvent) -> Unit = { event ->
-        if (!isStyleDisabledByLibass) {
-            onEvent(event)
-        }
-    }
     val contentModifier = if (isStyleDisabledByLibass) Modifier.alpha(0.35f) else Modifier
 
     LaunchedEffect(Unit) {
@@ -102,7 +111,7 @@ internal fun SubtitleStyleSidePanel(
 
     Column(
         modifier = modifier
-            .width(760.dp)
+            .width(780.dp)
             .height(330.dp)
             .clip(RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp))
             .background(Color(0xFF101010))
@@ -171,8 +180,14 @@ internal fun SubtitleStyleSidePanel(
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)) {
+                val activeCustomLabel = subtitleColorLabel(subtitleStyle.textColor)
+                val textColorTitle = if (activeCustomLabel != null) {
+                    "${stringResource(R.string.subtitle_style_text_color)} · $activeCustomLabel"
+                } else {
+                    stringResource(R.string.subtitle_style_text_color)
+                }
                 SubtitleStyleSection(
-                    title = stringResource(R.string.subtitle_style_text_color),
+                    title = textColorTitle,
                     centerContent = false,
                     modifier = Modifier
                         .width(StyleCardWidth)
@@ -183,7 +198,7 @@ internal fun SubtitleStyleSidePanel(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
                     ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                             PANEL_TEXT_COLORS.forEach { color ->
                                 SubtitleStyleColorChip(
                                     color = color,
@@ -239,7 +254,7 @@ internal fun SubtitleStyleSidePanel(
                                 color = Color.White.copy(alpha = 0.7f)
                             )
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             PANEL_OUTLINE_COLORS.forEach { color ->
                                 SubtitleStyleColorChip(
                                     color = color.copy(alpha = if (subtitleStyle.outlineEnabled) 1f else 0.35f),
@@ -425,7 +440,7 @@ private fun SubtitleStyleColorChip(
     IconButton(
         onClick = onClick,
         modifier = Modifier
-            .size(30.dp)
+            .size(25.dp)
             .then(borderModifier)
             .onFocusChanged { isFocused = it.isFocused },
         colors = IconButtonDefaults.colors(
@@ -437,7 +452,7 @@ private fun SubtitleStyleColorChip(
         shape = IconButtonDefaults.shape(shape = CircleShape)
     ) {
         if (isSelected) {
-            Icon(Icons.Default.Check, contentDescription = stringResource(R.string.cd_selected), modifier = Modifier.size(15.dp))
+            Icon(Icons.Default.Check, contentDescription = stringResource(R.string.cd_selected), modifier = Modifier.size(13.dp))
         }
     }
 }
