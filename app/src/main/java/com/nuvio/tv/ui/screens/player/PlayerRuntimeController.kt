@@ -92,6 +92,8 @@ class PlayerRuntimeController(
     internal val tmdbService: com.nuvio.tv.core.tmdb.TmdbService,
     internal val tmdbMetadataService: com.nuvio.tv.core.tmdb.TmdbMetadataService,
     internal val tmdbSettingsDataStore: com.nuvio.tv.data.local.TmdbSettingsDataStore,
+    internal val mdbListRepository: com.nuvio.tv.data.repository.MDBListRepository? = null,
+    internal val imdbEpisodeRatingsRepository: com.nuvio.tv.data.repository.ImdbEpisodeRatingsRepository? = null,
     internal val directDebridResolver: DirectDebridResolver,
     internal val youTubeStreamResolver: com.nuvio.tv.core.streams.YouTubeStreamResolver,
     internal val directDebridStreamPreparer: DirectDebridStreamPreparer,

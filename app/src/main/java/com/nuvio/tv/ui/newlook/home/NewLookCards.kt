@@ -104,8 +104,9 @@ internal fun NewLookCard(
     content: @Composable BoxScope.() -> Unit
 ) {
     val shape = RoundedCornerShape(radius)
-    val ring = focusRingColor
+    val ring = CoolSilverFocusRing
     val quiet = com.nuvio.tv.ui.newlook.LocalQuietFocus.current
+    var isFocused by remember { mutableStateOf(false) }
     // Whether the card's artwork is in (see [Artwork]; every card with depth draws its picture through it).
     val artwork = remember { mutableStateOf(false) }
     Card(
@@ -113,30 +114,34 @@ internal fun NewLookCard(
         onLongClick = onLongClick,
         modifier = modifier
             .then(if (width != null) Modifier.size(width, height) else Modifier.height(height))
-            .onFocusChanged { onFocusChanged(it.isFocused) },
+            .onFocusChanged {
+                isFocused = it.isFocused
+                onFocusChanged(it.isFocused)
+            },
         shape = CardDefaults.shape(shape),
         // Clear, not grey: while a row slides, a card whose artwork is still loading showed as a dark box for a frame
         // or two before its picture came in. Now the artwork just fades in where the card is.
         colors = CardDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color.Transparent),
-        // Quiet focus lifts the card a little and lays a soft shadow under it, with the white hairline.
-        scale = CardDefaults.scale(focusedScale = if (quiet) QUIET_FOCUS_LIFT else 1f, pressedScale = 0.98f),
+        // Crisp 2.dp Cool-Silver focus ring with a subtle lift strictly on the focused card.
+        scale = CardDefaults.scale(focusedScale = QUIET_FOCUS_LIFT, pressedScale = 0.98f),
         border = CardDefaults.border(
             border = Border.None,
-            focusedBorder = Border(BorderStroke(1.dp, ring), shape = shape),
-            pressedBorder = Border(BorderStroke(1.dp, ring), shape = shape)
+            focusedBorder = Border(BorderStroke(2.dp, ring), shape = shape),
+            pressedBorder = Border(BorderStroke(2.dp, ring), shape = shape)
         ),
         glow = if (quiet) CardDefaults.glow(focusedGlow = QuietFocusShadow, pressedGlow = QuietFocusShadow) else CardDefaults.glow()
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             androidx.compose.runtime.CompositionLocalProvider(LocalArtworkShown provides artwork) { content() }
-            // The depth's lit edge and sheen wait for the artwork: over a card still loading (a row sliding in new
-            // cards) they drew a faint empty box for a frame or two.
-            if (depth != null && artwork.value) CardDepthOverlay(shape, depth)
+            // Only apply depth edge sheen on the focused card so unfocused cards stay clean without thin white outlines.
+            if (depth != null && artwork.value && isFocused) CardDepthOverlay(shape, depth)
         }
     }
 }
 
 /** How much a focused card grows with Quiet focus: enough to read as lifted, not enough to crowd its row. */
+private val CoolSilverFocusRing = Color(0xFFCFDCE8)
+
 private const val QUIET_FOCUS_LIFT = 1.035f
 
 private val QuietFocusShadow = androidx.tv.material3.Glow(elevationColor = Color.Black.copy(alpha = 0.6f), elevation = 14.dp)

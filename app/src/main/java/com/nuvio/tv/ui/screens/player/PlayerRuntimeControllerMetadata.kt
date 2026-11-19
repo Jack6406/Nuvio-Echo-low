@@ -44,6 +44,10 @@ internal fun PlayerRuntimeController.fetchMetaDetails(id: String?, type: String?
     scope.launch {
         enrichDescriptionFromTmdb(id, type)
     }
+
+    scope.launch {
+        fetchPlayerHeaderRatings(id, type)
+    }
 }
 
 internal fun PlayerRuntimeController.initializeCloudPlaybackSequence() {
@@ -112,8 +116,8 @@ internal fun PlayerRuntimeController.updateEpisodeDescription() {
         video.season == currentSeason && video.episode == currentEpisode
     }?.overview
 
-    // Always update description when switching episodes - clear stale description
-    _uiState.update { it.copy(description = overview) }
+    // Always update description & episode rating when switching episodes - clear stale values
+    _uiState.update { it.copy(description = overview, currentEpisodeImdbRating = null) }
 
     // Push episode metadata to the MediaSession so Google Home shows the new episode.
     updateMediaSessionMetadata()
@@ -122,6 +126,45 @@ internal fun PlayerRuntimeController.updateEpisodeDescription() {
     if (!contentType.equals("cloud", ignoreCase = true)) {
         scope.launch {
             enrichDescriptionFromTmdb(contentId, contentType)
+        }
+        scope.launch {
+            fetchPlayerHeaderRatings(contentId, contentType)
+        }
+    }
+}
+
+internal suspend fun PlayerRuntimeController.fetchPlayerHeaderRatings(id: String?, type: String?) {
+    if (id.isNullOrBlank() || type.isNullOrBlank()) return
+    val normalizedType = type.trim().lowercase()
+    if (normalizedType == "cloud") return
+
+    val isSeries = normalizedType in listOf("series", "tv") ||
+        (currentSeason != null && currentEpisode != null)
+
+    if (!isSeries) {
+        val lbRating = runCatching {
+            mdbListRepository?.getLetterboxdRatingForItem(id, type)
+        }.getOrNull()?.takeIf { it > 0.0 }
+        if (lbRating != null) {
+            _uiState.update { it.copy(movieLetterboxdRating = lbRating) }
+        }
+    } else {
+        val season = currentSeason ?: return
+        val episode = currentEpisode ?: return
+        val combinedIds = listOfNotNull(id, currentVideoId, _uiState.value.backdrop).joinToString(" ")
+        val imdbId = Regex("(tt\\d{5,12})").find(combinedIds)?.groupValues?.get(1)
+        val tmdbId = id.substringAfter("tmdb:", "").substringBefore(':').toIntOrNull()
+            ?: runCatching { tmdbService.ensureTmdbId(id, type)?.toIntOrNull() }.getOrNull()
+
+        val epRating = runCatching {
+            imdbEpisodeRatingsRepository?.getEpisodeRatings(
+                imdbId = imdbId,
+                tmdbId = tmdbId
+            )?.get(season to episode)
+        }.getOrNull()?.takeIf { it > 0.0 }
+
+        if (epRating != null && currentSeason == season && currentEpisode == episode) {
+            _uiState.update { it.copy(currentEpisodeImdbRating = epRating) }
         }
     }
 }
@@ -203,6 +246,18 @@ private suspend fun PlayerRuntimeController.enrichDescriptionFromTmdb(id: String
         val tmdbEpisodeTitle = episodeEnrichment?.title
         if (!tmdbEpisodeTitle.isNullOrBlank()) {
             _uiState.update { it.copy(currentEpisodeTitle = tmdbEpisodeTitle) }
+        }
+    }
+
+    // Fallback episode rating from TMDB only when IMDb episode rating is unavailable.
+    val fallbackEpRating = episodeEnrichment?.rating?.takeIf { it > 0.0 }
+    if (isSeries && fallbackEpRating != null && currentSeason == season && currentEpisode == episode) {
+        _uiState.update { state ->
+            if (state.currentEpisodeImdbRating == null) {
+                state.copy(currentEpisodeImdbRating = fallbackEpRating)
+            } else {
+                state
+            }
         }
     }
 

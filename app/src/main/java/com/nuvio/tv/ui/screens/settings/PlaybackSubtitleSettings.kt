@@ -16,6 +16,8 @@ import com.nuvio.tv.data.local.displayName
 
 private val subtitleColors = listOf(
     Color.White,
+    Color(0xFFCFDCE8),
+    Color(0xFFAFC0D0),
     Color(0xFFD9D9D9),
     Color.Yellow,
     Color.Cyan,

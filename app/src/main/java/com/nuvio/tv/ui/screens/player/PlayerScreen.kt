@@ -2147,6 +2147,7 @@ private fun ExoPlayerSurface(
                         tunneledSurfaceFill = latestTunneledSurfaceFill,
                         aspectMode = latestAspectMode
                     )
+                    playerView.applySubtitleStyleIfNeeded(latestSubtitleStyle, force = true)
                 }
             }
 
@@ -2165,6 +2166,7 @@ private fun ExoPlayerSurface(
                 tunneledSurfaceFill = latestTunneledSurfaceFill,
                 aspectMode = latestAspectMode
             )
+            playerView.applySubtitleStyleIfNeeded(latestSubtitleStyle, force = true)
         }
         onDispose {
             player.removeListener(listener)
@@ -2323,7 +2325,8 @@ private fun PlayerView.applySubtitleStyleIfNeeded(
             )
         )
 
-        setApplyEmbeddedStyles(!isAss)
+        val hasCustomTextColor = (subtitleStyle.textColor and 0x00FFFFFF) != (android.graphics.Color.WHITE and 0x00FFFFFF)
+        setApplyEmbeddedStyles(!isAss && !hasCustomTextColor)
 
         val bottomPaddingFraction =
             (0.06f + (subtitleStyle.verticalOffset / 250f)).coerceIn(0f, 0.4f)

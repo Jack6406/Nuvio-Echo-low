@@ -1729,7 +1729,13 @@ private fun RowCard(
             val minutesLeftText = (cw as? ContinueWatchingItem.InProgress)?.progress?.let { wp ->
                 if (wp.duration > wp.position && wp.duration > 0L) {
                     val minsLeft = ((wp.duration - wp.position) / 60_000L).coerceAtLeast(1L)
-                    "${minsLeft}m left"
+                    if (minsLeft >= 60L) {
+                        val hours = minsLeft / 60L
+                        val remMins = minsLeft % 60L
+                        if (remMins > 0L) "${hours}h ${remMins}m left" else "${hours}h left"
+                    } else {
+                        "${minsLeft}m left"
+                    }
                 } else null
             }
             val rawCwLogo = when (cw) {

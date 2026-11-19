@@ -79,7 +79,8 @@ private const val SubtitleFocusTag = "SubtitleFocus"
 
 private val OverlayTextColors = listOf(
     Color.White,
-    Color(0xFFD9D9D9),
+    Color(0xFFCFDCE8),
+    Color(0xFFAFC0D0),
     Color(0xFFFFD700),
     Color(0xFF00E5FF),
     Color(0xFFFF5C5C),
@@ -936,7 +937,10 @@ private fun SubtitleStyleRail(
                         focusRequesters = focusRequesters,
                         focusKeyPrefix = StyleFocusKey.TextColorPrefix,
                         onFocused = onStyleFocused,
-                        onColorSelected = { color -> dispatchStyleEvent(PlayerEvent.OnSetSubtitleTextColor(color)) }
+                        onColorSelected = { color ->
+                            val currentAlpha = Color(subtitleStyle.textColor).alpha
+                            dispatchStyleEvent(PlayerEvent.OnSetSubtitleTextColor(Color(color).copy(alpha = currentAlpha).toArgb()))
+                        }
                     )
                 }
             }

@@ -344,6 +344,18 @@ fun NuvioLegacyTopLeftBadges(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+                val episodeRating = uiState.currentEpisodeImdbRating?.takeIf { it > 0.0 }
+                if (episodeRating != null) {
+                    Text(
+                        text = "★ ${String.format(java.util.Locale.US, "%.1f", episodeRating)}",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = Color(0xFFCFDCE8),
+                        maxLines = 1
+                    )
+                }
             }
             if (releaseYearOnly.isNotBlank()) {
                 Text(
@@ -353,6 +365,19 @@ fun NuvioLegacyTopLeftBadges(
                         fontWeight = FontWeight.SemiBold
                     ),
                     color = Color.White.copy(alpha = 0.80f),
+                    maxLines = 1
+                )
+            }
+            val isMovieHeader = uiState.currentSeason == null && uiState.currentEpisode == null
+            val movieLetterboxd = uiState.movieLetterboxdRating?.takeIf { it > 0.0 }
+            if (isMovieHeader && movieLetterboxd != null) {
+                Text(
+                    text = "★ ${String.format(java.util.Locale.US, "%.1f", movieLetterboxd)}",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    color = Color(0xFFCFDCE8),
                     maxLines = 1
                 )
             }

@@ -66,6 +66,8 @@ data class PlayerUiState(
     val title: String = "",
     val contentName: String? = null, // Series/show name (for series content)
     val releaseYear: String? = null, // Release year for movies
+    val movieLetterboxdRating: Double? = null, // Letterboxd rating for movies (via MDBList)
+    val currentEpisodeImdbRating: Double? = null, // Current episode IMDb rating for TV series
     val contentType: String? = null,
     val currentStreamName: String? = null, // Name of the current stream source
     val currentStreamUrl: String? = null,

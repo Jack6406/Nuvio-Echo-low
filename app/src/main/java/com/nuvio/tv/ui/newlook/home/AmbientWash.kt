@@ -42,12 +42,13 @@ private const val WASH_KEEP_HEIGHT = 108
  * The wash's average brightness (HSV value) before the fade: dark artwork is lifted to it, so a night scene still
  * colours the page; bright artwork is brought down to it, so the rows stay readable. Lifted at most [WASH_MAX_LIFT].
  */
-private const val WASH_MEAN_VALUE = 0.40f
-private const val WASH_MAX_LIFT = 3f
+private const val WASH_MEAN_VALUE = 0.22f
+private const val WASH_MAX_LIFT = 2.2f
 /** The brightness at the top of the page and at the bottom, where the rows sit (fractions of the above). */
-private const val WASH_TOP_LIGHT = 1.0f
-private const val WASH_BOTTOM_LIGHT = 0.62f
-private const val WASH_SATURATION = 1.25f
+private const val WASH_TOP_LIGHT = 0.80f
+private const val WASH_BOTTOM_LIGHT = 0.30f
+private const val WASH_SATURATION = 0.85f
+private val WASH_MIDNIGHT_SLATE = Color(0xFF090B0F)
 private const val WASH_CROSSFADE_MS = 1_200
 
 private val washCache = object : LinkedHashMap<String, ImageBitmap>(16, 0.75f, true) {
@@ -101,6 +102,7 @@ internal fun AmbientPageWash(url: String?, modifier: Modifier = Modifier) {
     }
     Box(
         modifier = modifier.drawBehind {
+            drawRect(WASH_MIDNIGHT_SLATE)
             val dst = IntSize(size.width.roundToInt(), size.height.roundToInt())
             // Read only here: the crossfade redraws the page's background, it never recomposes it.
             val alpha = fade.value

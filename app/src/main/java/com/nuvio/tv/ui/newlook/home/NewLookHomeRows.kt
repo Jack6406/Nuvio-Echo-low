@@ -143,7 +143,7 @@ internal fun buildNewLookRows(
                 else -> RowKind.POSTER
             },
             items = items.mapIndexed { i, item -> builtInItem(row.rowKey, item, i, titles) },
-            ranked = row.ranked && highlighted,
+            ranked = (row.ranked || row == BuiltInRow.TRENDING_WEEK) && highlighted,
             builtIn = row
         )
     }

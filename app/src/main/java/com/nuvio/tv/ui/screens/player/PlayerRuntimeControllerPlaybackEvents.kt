@@ -1776,6 +1776,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             scope.launch { playerSettingsDataStore.setSubtitleSize(event.size) }
         }
         is PlayerEvent.OnSetSubtitleTextColor -> {
+            _uiState.update { it.copy(subtitleStyle = it.subtitleStyle.copy(textColor = event.color)) }
             scope.launch { playerSettingsDataStore.setSubtitleTextColor(event.color) }
         }
         is PlayerEvent.OnSetSubtitleBold -> {
