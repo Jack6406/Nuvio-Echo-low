@@ -29,7 +29,114 @@ class MDBListRepository internal constructor(
         @dagger.hilt.android.qualifiers.ApplicationContext context: android.content.Context
     ) : this(api, settingsDataStore, tmdbService, MdbListRatingsLoader(api, MdbListRatingsDiskCache(context)))
 
+    private val userRatingsCache = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    @Volatile
+    private var userRatingsLoadedAtMs: Long = 0L
+
     fun isAvailable(settings: MDBListSettings): Boolean = settings.enabled && api.credential(settings.apiKey) != null
+
+    private fun ratingCacheKeys(meta: Meta): List<String> {
+        val kind = if (meta.type == com.nuvio.tv.domain.model.ContentType.SERIES ||
+            meta.type == com.nuvio.tv.domain.model.ContentType.TV ||
+            meta.apiType.equals("series", ignoreCase = true) ||
+            meta.apiType.equals("tv", ignoreCase = true)
+        ) "show" else "movie"
+        val keys = mutableListOf<String>()
+        val imdb = Regex("(tt\\d{5,12})").find("${meta.id} ${meta.imdbId.orEmpty()}")?.groupValues?.get(1)
+        if (!imdb.isNullOrBlank()) keys.add("$kind:imdb:$imdb")
+        val tmdb = meta.id.substringAfter("tmdb:", "").substringBefore(':').toIntOrNull()
+        if (tmdb != null && tmdb > 0) keys.add("$kind:tmdb:$tmdb")
+        return keys
+    }
+
+    private suspend fun buildSyncRatingPayload(meta: Meta, rating: Int?): String? {
+        val isShow = meta.type == com.nuvio.tv.domain.model.ContentType.SERIES ||
+            meta.type == com.nuvio.tv.domain.model.ContentType.TV ||
+            meta.apiType.equals("series", ignoreCase = true) ||
+            meta.apiType.equals("tv", ignoreCase = true)
+        val groupKey = if (isShow) "shows" else "movies"
+        val imdb = Regex("(tt\\d{5,12})").find("${meta.id} ${meta.imdbId.orEmpty()}")?.groupValues?.get(1)
+        val tmdb = meta.id.substringAfter("tmdb:", "").substringBefore(':').toIntOrNull()
+            ?: runCatching { tmdbService.ensureTmdbId(meta.id, meta.apiType.ifBlank { if (isShow) "series" else "movie" })?.toIntOrNull() }.getOrNull()
+        if (imdb == null && tmdb == null) return null
+
+        val ids = org.json.JSONObject().apply {
+            if (!imdb.isNullOrBlank()) put("imdb", imdb)
+            if (tmdb != null && tmdb > 0) put("tmdb", tmdb)
+        }
+        val entry = org.json.JSONObject().apply {
+            put("ids", ids)
+            if (rating != null) put("rating", rating.coerceIn(1, 10))
+        }
+        val arr = org.json.JSONArray().put(entry)
+        return org.json.JSONObject().put(groupKey, arr).toString()
+    }
+
+    private fun parseAndCacheSyncRatings(rawJson: String?) {
+        if (rawJson.isNullOrBlank()) return
+        runCatching {
+            val root = org.json.JSONObject(rawJson)
+            fun ingest(arrayName: String, kind: String, itemObjName: String) {
+                val arr = root.optJSONArray(arrayName) ?: return
+                for (i in 0 until arr.length()) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    val score = obj.optInt("rating", 0)
+                    if (score !in 1..10) continue
+                    val target = obj.optJSONObject(itemObjName) ?: obj
+                    val ids = target.optJSONObject("ids") ?: obj.optJSONObject("ids")
+                    val imdb = ids?.optString("imdb")?.takeIf { it.startsWith("tt") }
+                        ?: target.optString("imdb_id").takeIf { it.startsWith("tt") }
+                    val tmdb = ids?.optInt("tmdb", 0)?.takeIf { it > 0 }
+                        ?: target.optInt("tmdb_id", 0).takeIf { it > 0 }
+                    if (imdb != null) userRatingsCache["$kind:imdb:$imdb"] = score
+                    if (tmdb != null) userRatingsCache["$kind:tmdb:$tmdb"] = score
+                }
+            }
+            ingest("movies", "movie", "movie")
+            ingest("shows", "show", "show")
+            userRatingsLoadedAtMs = System.currentTimeMillis()
+        }
+    }
+
+    suspend fun getUserRatingForMeta(meta: Meta, forceRefresh: Boolean = false): Int? {
+        val settings = settingsDataStore.settings.first()
+        val credential = api.credential(settings.apiKey) ?: return null
+        val keys = ratingCacheKeys(meta)
+        val cacheFresh = (System.currentTimeMillis() - userRatingsLoadedAtMs) < 5L * 60_000L
+        if (!forceRefresh && cacheFresh) {
+            keys.firstNotNullOfOrNull { userRatingsCache[it] }?.let { return it }
+        }
+        if (forceRefresh || !cacheFresh) {
+            runCatching {
+                val raw = api.getSyncRatingsJson(credential)
+                parseAndCacheSyncRatings(raw)
+            }
+        }
+        return keys.firstNotNullOfOrNull { userRatingsCache[it] }
+    }
+
+    suspend fun setUserRatingForMeta(meta: Meta, rating: Int): Boolean {
+        val settings = settingsDataStore.settings.first()
+        val credential = api.credential(settings.apiKey) ?: return false
+        val clamped = rating.coerceIn(1, 10)
+        val payload = buildSyncRatingPayload(meta, clamped) ?: return false
+        val ok = runCatching { api.postSyncRatingsJson(payload, credential) }.getOrDefault(false)
+        if (ok) {
+            ratingCacheKeys(meta).forEach { userRatingsCache[it] = clamped }
+        }
+        return ok
+    }
+
+    suspend fun removeUserRatingForMeta(meta: Meta): Boolean {
+        val settings = settingsDataStore.settings.first()
+        val credential = api.credential(settings.apiKey) ?: return false
+        val payload = buildSyncRatingPayload(meta, null) ?: return false
+        val ok = runCatching { api.removeSyncRatingsJson(payload, credential) }.getOrDefault(false)
+        if (ok) {
+            ratingCacheKeys(meta).forEach { userRatingsCache.remove(it) }
+        }
+        return ok
+    }
 
     suspend fun getImdbRatingForItem(itemId: String, itemType: String): Double? {
         val settings = settingsDataStore.settings.first()

@@ -76,6 +76,8 @@ import com.nuvio.tv.domain.model.MetaCompany
 import com.nuvio.tv.domain.model.TraktCommentReview
 import com.nuvio.tv.domain.model.Video
 import kotlinx.coroutines.delay
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.outlined.Visibility
 
 /** A full-screen panel: black, and focus stays inside it until it closes. */
 @Composable
@@ -144,6 +146,7 @@ internal fun EpisodesPanel(
     episodeRatings: Map<Pair<Int, Int>, TitleRating>,
     episodeReviews: Map<Pair<Int, Int>, ReviewsState>,
     onPlayEpisode: (Video) -> Unit,
+    onToggleEpisodeWatched: (Video) -> Unit = {},
     onRateEpisode: (Video, TitleRating) -> Unit,
     onLoadEpisodeReviews: (Video) -> Unit,
     onOpenReview: (List<TraktCommentReview>, Int) -> Unit,
@@ -376,12 +379,20 @@ internal fun EpisodesPanel(
         }
         menuFor?.let { video ->
             val upcoming = upcomingReminder(meta, video)
+            val epKey = (video.season ?: 0) to (video.episode ?: 0)
+            val epWatched = epKey in state.watchedEpisodes || state.episodeProgressMap[epKey]?.isCompleted() == true
             EpisodeHoldMenu(
                 video = video,
                 anchor = menuAnchor,
-                current = episodeRatings[(video.season ?: 0) to (video.episode ?: 0)],
+                current = episodeRatings[epKey],
+                watched = epWatched,
                 upcoming = upcoming != null,
                 reminderOn = upcoming != null && upcoming.key in reminders,
+                onToggleWatched = {
+                    onToggleEpisodeWatched(video)
+                    refocusEpisode = video.id
+                    menuFor = null
+                },
                 onPlay = {
                     if (upcoming != null) {
                         onToggleReminder(video)
@@ -753,8 +764,10 @@ private fun EpisodeHoldMenu(
     video: Video,
     anchor: Rect,
     current: TitleRating?,
+    watched: Boolean,
     upcoming: Boolean,
     reminderOn: Boolean,
+    onToggleWatched: () -> Unit,
     onPlay: () -> Unit,
     onRate: (TitleRating) -> Unit,
     onReviews: () -> Unit,
@@ -801,15 +814,19 @@ private fun EpisodeHoldMenu(
             HoldItem(stringResource(R.string.nd_hold_play), false, first, onPlay) { c ->
                 Icon(Icons.Filled.PlayArrow, null, tint = c, modifier = Modifier.size(18.dp))
             }
-        }
-        HoldItem(stringResource(R.string.nd_hold_liked), current == TitleRating.LIKE, null, { onRate(TitleRating.LIKE) }) { c ->
-            DetailGlyphIcon(DetailGlyph.THUMB_UP, current == TitleRating.LIKE, c, 17.dp)
-        }
-        HoldItem(stringResource(R.string.nd_hold_loved), current == TitleRating.LOVE, null, { onRate(TitleRating.LOVE) }) { c ->
-            DetailGlyphIcon(DetailGlyph.THUMBS_UP_DOUBLE, current == TitleRating.LOVE, c, 18.dp)
-        }
-        HoldItem(stringResource(R.string.nd_hold_not_for_me), current == TitleRating.DISLIKE, null, { onRate(TitleRating.DISLIKE) }) { c ->
-            DetailGlyphIcon(DetailGlyph.THUMB_DOWN, current == TitleRating.DISLIKE, c, 17.dp)
+            HoldItem(
+                label = if (watched) "Mark as unwatched" else "Mark as watched",
+                checked = watched,
+                requester = null,
+                onClick = onToggleWatched
+            ) { c ->
+                Icon(
+                    if (watched) Icons.Filled.Visibility else Icons.Outlined.Visibility,
+                    null,
+                    tint = c,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
         Box(Modifier.padding(horizontal = 10.dp, vertical = 4.dp).fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.12f)))
         HoldItem(stringResource(R.string.nd_bin_picker_title), false, null, onAddToBin) { c ->

@@ -124,16 +124,7 @@ fun AboutSettingsContent(
                                 contentDescription = stringResource(R.string.cd_nuvio_logo)
                             )
 
-                            val rawCredit = stringResource(R.string.about_made_with_love)
-                            val sahilCredit = remember(rawCredit) {
-                                if (rawCredit.contains("Laking22", ignoreCase = true) ||
-                                    rawCredit.contains("Laking", ignoreCase = true)
-                                ) {
-                                    rawCredit.replace(Regex("(?i)laking22|laking"), "Sahil")
-                                } else {
-                                    "Made by Sahil and friends 😉"
-                                }
-                            }
+                            val sahilCredit = "Made by Sahil and Gemini"
 
                             Text(
                                 text = sahilCredit,

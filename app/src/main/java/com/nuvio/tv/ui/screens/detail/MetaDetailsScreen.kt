@@ -810,6 +810,7 @@ fun MetaDetailsScreen(
                     onBinPickerDismiss = { viewModel.onEvent(MetaDetailsEvent.OnBinPickerDismiss) },
                     onCreateBin = { name -> viewModel.createBinAndAdd(name) },
                     onToggleMovieWatched = { viewModel.onEvent(MetaDetailsEvent.OnToggleMovieWatched) },
+                    onToggleEpisodeWatched = { viewModel.onEvent(MetaDetailsEvent.OnToggleEpisodeWatched(it)) },
                     onMarkSeasonWatched = { viewModel.onEvent(MetaDetailsEvent.OnMarkSeasonWatched(it)) },
                     onMarkSeasonUnwatched = { viewModel.onEvent(MetaDetailsEvent.OnMarkSeasonUnwatched(it)) },
                     isSeasonFullyWatched = { viewModel.isSeasonFullyWatched(it) },

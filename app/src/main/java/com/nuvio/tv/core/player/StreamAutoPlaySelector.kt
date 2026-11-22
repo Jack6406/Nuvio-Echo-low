@@ -8,6 +8,28 @@ import com.nuvio.tv.domain.model.Stream
 import com.nuvio.tv.domain.model.StreamDebridCacheState
 
 object StreamAutoPlaySelector {
+    @Volatile
+    private var manualSelectionLocked: Boolean = false
+
+    @Volatile
+    private var manualSelectionStreamUrl: String? = null
+
+    fun markManualSelection(streamUrl: String?) {
+        manualSelectionLocked = true
+        manualSelectionStreamUrl = streamUrl?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    fun clearManualSelection() {
+        manualSelectionLocked = false
+        manualSelectionStreamUrl = null
+    }
+
+    fun isManualSelectionLocked(currentStreamUrl: String?): Boolean {
+        if (!manualSelectionLocked) return false
+        val lockedUrl = manualSelectionStreamUrl ?: return true
+        val activeUrl = currentStreamUrl?.trim()
+        return activeUrl.isNullOrEmpty() || activeUrl == lockedUrl
+    }
     fun orderAddonStreams(
         streams: List<AddonStreams>,
         installedOrder: List<String>
@@ -129,6 +151,7 @@ object StreamAutoPlaySelector {
         val effectivePrefs = (preferences - AutoPlayPreferences.Pill.SMALLEST.key) +
             setOf(AutoPlayPreferences.Pill.Q1080.key, AutoPlayPreferences.Pill.LARGEST.key)
 
+        clearManualSelection()
         return AutoPlayPreferences.rank(playableCandidates, effectivePrefs).firstOrNull()
     }
 }

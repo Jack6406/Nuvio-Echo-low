@@ -117,6 +117,8 @@ import dev.chrisbanes.haze.HazeInputScale
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -487,6 +489,9 @@ fun StreamScreen(
                         scope.coroutineLaunch {
                             val playbackInfo = viewModel.resolveStreamForPlayback(stream)
                             if (playbackInfo != null) {
+                                com.nuvio.tv.core.player.StreamAutoPlaySelector.markManualSelection(
+                                    playbackInfo.url ?: stream.getStreamUrl()
+                                )
                                 pendingRestoreOnResume = true
                                 routePlayback(playbackInfo)
                                 viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
@@ -1288,6 +1293,9 @@ private fun StreamCard(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
+            .pointerInput(onClick) {
+                detectTapGestures(onTap = { onClick() })
+            }
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged {
                 isFocused = it.isFocused

@@ -7,6 +7,8 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import javax.inject.Inject
 import javax.inject.Singleton
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.Response
 
 sealed interface MdbListRatingsCredential {
@@ -72,6 +74,33 @@ class MdbListRatingsClient @Inject constructor(
                     scope = credential.scope
                 ).body
             )
+        }
+    }
+
+    suspend fun getSyncRatingsJson(credential: MdbListRatingsCredential): String? = when (credential) {
+        is MdbListRatingsCredential.ApiKey -> api.getSyncRatings(credential.value).bodyOrThrow()?.string()
+        is MdbListRatingsCredential.Account -> accountApi.get("/sync/ratings", scope = credential.scope).body
+    }
+
+    suspend fun postSyncRatingsJson(bodyJson: String, credential: MdbListRatingsCredential): Boolean = when (credential) {
+        is MdbListRatingsCredential.ApiKey -> {
+            val req = bodyJson.toRequestBody("application/json; charset=utf-8".toMediaType())
+            api.postSyncRatings(credential.value, req).isSuccessful
+        }
+        is MdbListRatingsCredential.Account -> {
+            accountApi.post("/sync/ratings", body = bodyJson, scope = credential.scope)
+            true
+        }
+    }
+
+    suspend fun removeSyncRatingsJson(bodyJson: String, credential: MdbListRatingsCredential): Boolean = when (credential) {
+        is MdbListRatingsCredential.ApiKey -> {
+            val req = bodyJson.toRequestBody("application/json; charset=utf-8".toMediaType())
+            api.removeSyncRatings(credential.value, req).isSuccessful
+        }
+        is MdbListRatingsCredential.Account -> {
+            accountApi.post("/sync/ratings/remove", body = bodyJson, scope = credential.scope)
+            true
         }
     }
 

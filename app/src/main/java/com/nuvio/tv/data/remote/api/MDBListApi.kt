@@ -31,4 +31,21 @@ interface MDBListApi {
         @Query("apikey") apiKey: String,
         @Body body: MDBListMediaRequestDto
     ): Response<List<MDBListMediaResponseDto>>
+
+    @GET("sync/ratings")
+    suspend fun getSyncRatings(
+        @Query("apikey") apiKey: String
+    ): Response<okhttp3.ResponseBody>
+
+    @POST("sync/ratings")
+    suspend fun postSyncRatings(
+        @Query("apikey") apiKey: String,
+        @Body body: okhttp3.RequestBody
+    ): Response<okhttp3.ResponseBody>
+
+    @POST("sync/ratings/remove")
+    suspend fun removeSyncRatings(
+        @Query("apikey") apiKey: String,
+        @Body body: okhttp3.RequestBody
+    ): Response<okhttp3.ResponseBody>
 }

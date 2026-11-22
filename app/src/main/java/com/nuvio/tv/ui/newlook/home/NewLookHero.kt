@@ -74,6 +74,8 @@ import com.nuvio.tv.core.home.FeaturedTag
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.ui.newlook.hairlineRing
 import com.nuvio.tv.ui.screens.detail.detailGlassLens
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 
 /** One title in the hero carousel, with what the window shows about it. */
 internal data class HeroSlide(
@@ -485,6 +487,14 @@ private fun HeroButton(
             }
             .height(if (compact) 28.dp else 32.dp)
             .then(if (focused) Modifier.detailGlassLens(shape) else Modifier.heroGlassIdle(shape))
+            .then(
+                if (focusRequester == null) Modifier else Modifier.pointerInput(onClick, onLongClick) {
+                    detectTapGestures(
+                        onTap = { onClick() },
+                        onLongPress = onLongClick?.let { lp -> { lp() } }
+                    )
+                }
+            )
             .then(
                 if (focusRequester == null) Modifier else Modifier
                     .focusRequester(focusRequester)

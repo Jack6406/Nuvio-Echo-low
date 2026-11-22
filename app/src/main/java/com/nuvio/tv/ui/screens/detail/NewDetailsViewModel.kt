@@ -74,6 +74,7 @@ class NewDetailsViewModel @Inject constructor(
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
     private val streamRepository: com.nuvio.tv.domain.repository.StreamRepository,
     private val streamBadgePresentation: com.nuvio.tv.core.streams.StreamBadgePresentation,
+    private val mdbListRepository: com.nuvio.tv.data.repository.MDBListRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -94,6 +95,12 @@ class NewDetailsViewModel @Inject constructor(
 
     private val _titleReviews = MutableStateFlow(ReviewsState())
     val titleReviews: StateFlow<ReviewsState> = _titleReviews.asStateFlow()
+
+    private val _mdbListUserRating = MutableStateFlow<Int?>(null)
+    val mdbListUserRating: StateFlow<Int?> = _mdbListUserRating.asStateFlow()
+
+    private val _mdbListRatingPending = MutableStateFlow(false)
+    val mdbListRatingPending: StateFlow<Boolean> = _mdbListRatingPending.asStateFlow()
 
     private val _episodeReviews = MutableStateFlow<Map<Pair<Int, Int>, ReviewsState>>(emptyMap())
     val episodeReviews: StateFlow<Map<Pair<Int, Int>, ReviewsState>> = _episodeReviews.asStateFlow()
@@ -120,6 +127,37 @@ class NewDetailsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             _credits.value = runCatching { creditsRepository.credits(meta) }.getOrDefault(TitleCredits())
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            _mdbListUserRating.value = runCatching { mdbListRepository.getUserRatingForMeta(meta) }.getOrNull()
+        }
+    }
+
+    fun setMdbListRating(meta: Meta, rating: Int) {
+        if (_mdbListRatingPending.value) return
+        val previous = _mdbListUserRating.value
+        _mdbListUserRating.value = rating.coerceIn(1, 10)
+        _mdbListRatingPending.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = runCatching { mdbListRepository.setUserRatingForMeta(meta, rating) }.getOrDefault(false)
+            if (!ok) {
+                _mdbListUserRating.value = previous
+            }
+            _mdbListRatingPending.value = false
+        }
+    }
+
+    fun removeMdbListRating(meta: Meta) {
+        if (_mdbListRatingPending.value) return
+        val previous = _mdbListUserRating.value
+        _mdbListUserRating.value = null
+        _mdbListRatingPending.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = runCatching { mdbListRepository.removeUserRatingForMeta(meta) }.getOrDefault(false)
+            if (!ok) {
+                _mdbListUserRating.value = previous
+            }
+            _mdbListRatingPending.value = false
         }
     }
 

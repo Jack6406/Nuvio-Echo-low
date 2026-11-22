@@ -80,6 +80,8 @@ import androidx.compose.runtime.derivedStateOf
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.ui.newlook.focusRingColor
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 
 internal val CardBackground = Color(0xFF222222)
 private val OpenEasing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)
@@ -114,6 +116,12 @@ internal fun NewLookCard(
         onLongClick = onLongClick,
         modifier = modifier
             .then(if (width != null) Modifier.size(width, height) else Modifier.height(height))
+            .pointerInput(onClick, onLongClick) {
+                detectTapGestures(
+                    onTap = { onClick() },
+                    onLongPress = onLongClick?.let { lp -> { lp() } }
+                )
+            }
             .onFocusChanged {
                 isFocused = it.isFocused
                 onFocusChanged(it.isFocused)

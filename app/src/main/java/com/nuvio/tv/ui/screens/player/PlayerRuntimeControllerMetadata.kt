@@ -190,6 +190,28 @@ private suspend fun PlayerRuntimeController.enrichDescriptionFromTmdb(id: String
         metaGenres = enrichment.genres
     }
 
+    // Load clean 1080p backdrops from TMDB so the Pause Overlay can rotate artwork every 5 minutes.
+    if (_uiState.value.pauseBackdrops.isEmpty()) {
+        val backdropOptions = runCatching {
+            tmdbMetadataService.fetchBackdropOptions(
+                tmdbId = tmdbId,
+                contentType = contentType,
+                language = settings.language,
+                maxItems = 12
+            )
+        }.getOrDefault(emptyList())
+        val hd1080 = backdropOptions.filter {
+            it.resolutionLabel?.contains("1080p", ignoreCase = true) == true
+        }
+        val selectedBackdrops = (if (hd1080.isNotEmpty()) hd1080 else backdropOptions)
+            .map { it.url }
+            .distinct()
+            .take(8)
+        if (selectedBackdrops.isNotEmpty()) {
+            _uiState.update { it.copy(pauseBackdrops = selectedBackdrops) }
+        }
+    }
+
     // Always enrich cast with TMDB actor photos & character names when available so the Pause Overlay
     // displays actor photos even if the addon only returned bare actor names.
     if (enrichment.castMembers.isNotEmpty()) {

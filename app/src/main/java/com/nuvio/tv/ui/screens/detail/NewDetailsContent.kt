@@ -112,6 +112,7 @@ import com.nuvio.tv.ui.util.localizedGenreLabel
 import com.nuvio.tv.ui.util.rememberLongPressKeyTracker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.material.icons.outlined.StarBorder
 
 internal val NdText2 = Color(0xFFB3B3B3)
 internal val NdText3 = Color(0xFF808080)
@@ -291,6 +292,7 @@ internal fun NewDetailsContent(
     onBinPickerDismiss: () -> Unit,
     onCreateBin: suspend (String) -> String?,
     onToggleMovieWatched: () -> Unit,
+    onToggleEpisodeWatched: (Video) -> Unit = {},
     onMarkSeasonWatched: (Int) -> Unit,
     onMarkSeasonUnwatched: (Int) -> Unit,
     isSeasonFullyWatched: (Int) -> Boolean,
@@ -306,6 +308,8 @@ internal fun NewDetailsContent(
         extras.observePreselectedStream(meta, state.nextToWatch)
     }
     val ratings by extras.ratings.collectAsStateWithLifecycle()
+    val mdbListUserRating by extras.mdbListUserRating.collectAsStateWithLifecycle()
+    val mdbListRatingPending by extras.mdbListRatingPending.collectAsStateWithLifecycle()
     val titleReviews by extras.titleReviews.collectAsStateWithLifecycle()
     val episodeReviews by extras.episodeReviews.collectAsStateWithLifecycle()
     val titleRating = ratings.title(meta.id)
@@ -572,9 +576,13 @@ internal fun NewDetailsContent(
                     hasCustomBackdrop = customBackdropUrl != null,
                     preselectedStream = preselectedStream,
                     titleRating = titleRating,
+                    mdbListUserRating = mdbListUserRating,
+                    mdbListRatingPending = mdbListRatingPending,
                     watched = watched,
                     watchedPending = state.isMovieWatchedPending,
                     onRate = { extras.toggleTitleRating(meta, it) },
+                    onRateMdbList = { score -> extras.setMdbListRating(meta, score) },
+                    onRemoveMdbListRating = { extras.removeMdbListRating(meta) },
                     onToggleWatched = toggleWatched,
                     onToggleLibrary = onToggleLibrary,
                     onLibraryLongPress = onLibraryLongPress,
@@ -665,6 +673,7 @@ internal fun NewDetailsContent(
                 episodeRatings = episodeRatings,
                 episodeReviews = episodeReviews,
                 onPlayEpisode = { video -> panel = null; onPlayEpisode(video) },
+                onToggleEpisodeWatched = onToggleEpisodeWatched,
                 onRateEpisode = { video, rating -> extras.toggleEpisodeRating(meta, video, rating) },
                 onLoadEpisodeReviews = { video -> extras.loadEpisodeReviews(meta, video) },
                 onOpenReview = { list, index -> reviewDirection = 0; openReview = list to index },
@@ -795,9 +804,13 @@ private fun NdHero(
     hasCustomBackdrop: Boolean,
     preselectedStream: PreselectedStreamInfo? = null,
     titleRating: TitleRating?,
+    mdbListUserRating: Int?,
+    mdbListRatingPending: Boolean,
     watched: Boolean,
     watchedPending: Boolean,
     onRate: (TitleRating) -> Unit,
+    onRateMdbList: (Int) -> Unit,
+    onRemoveMdbListRating: () -> Unit,
     onToggleWatched: () -> Unit,
     onToggleLibrary: () -> Unit,
     onLibraryLongPress: () -> Unit,
@@ -872,7 +885,8 @@ private fun NdHero(
                 val holding = state.bins.filter { it.id in state.titleBinIds }
                 NdRatingRow(
                     firstFocus = likeFocus,
-                    titleRating = titleRating,
+                    mdbListUserRating = mdbListUserRating,
+                    mdbListRatingPending = mdbListRatingPending,
                     inBin = holding.isNotEmpty(),
                     inBinLabel = when (holding.size) {
                         0 -> null
@@ -884,7 +898,8 @@ private fun NdHero(
                     watched = watched,
                     watchedPending = watchedPending,
                     hasCustomBackdrop = hasCustomBackdrop,
-                    onRate = onRate,
+                    onRateMdbList = onRateMdbList,
+                    onRemoveMdbListRating = onRemoveMdbListRating,
                     onToggleLibrary = onToggleLibrary,
                     onLibraryLongPress = onLibraryLongPress,
                     onToggleWatched = onToggleWatched,
@@ -1181,11 +1196,12 @@ private data class NdRateButton(
     val onLongClick: (() -> Unit)? = null
 )
 
-/** Like, love, not for me, watchlist, watched: one row of glass circles with the focused one's meaning beside it. */
+/** MDBList 1-10 rating, watchlist/bin, watched, and backdrop: one row of glass circles with inline 1-10 picker. */
 @Composable
 private fun NdRatingRow(
     firstFocus: FocusRequester,
-    titleRating: TitleRating?,
+    mdbListUserRating: Int?,
+    mdbListRatingPending: Boolean,
     inBin: Boolean,
     inBinLabel: String?,
     binFocus: FocusRequester,
@@ -1193,22 +1209,41 @@ private fun NdRatingRow(
     watched: Boolean,
     watchedPending: Boolean,
     hasCustomBackdrop: Boolean,
-    onRate: (TitleRating) -> Unit,
+    onRateMdbList: (Int) -> Unit,
+    onRemoveMdbListRating: () -> Unit,
     onToggleLibrary: () -> Unit,
     onLibraryLongPress: () -> Unit,
     onToggleWatched: () -> Unit,
     onOpenBackdrop: () -> Unit
 ) {
-    val likeLabel = stringResource(R.string.nd_rate_like)
-    val loveLabel = stringResource(R.string.nd_rate_love)
-    val dislikeLabel = stringResource(R.string.nd_rate_dislike)
+    var pickerOpen by remember { mutableStateOf(false) }
+    val ratingActiveLabel = mdbListUserRating?.let { "MDBList ★ $it/10" }
     val buttons = listOf(
-        NdRateButton("like", likeLabel, stringResource(R.string.nd_rate_saved, likeLabel), titleRating == TitleRating.LIKE, true,
-            { on, c -> DetailGlyphIcon(DetailGlyph.THUMB_UP, on, c, 18.dp) }, { onRate(TitleRating.LIKE) }),
-        NdRateButton("love", loveLabel, stringResource(R.string.nd_rate_saved, loveLabel), titleRating == TitleRating.LOVE, true,
-            { on, c -> DetailGlyphIcon(DetailGlyph.THUMBS_UP_DOUBLE, on, c, 19.dp) }, { onRate(TitleRating.LOVE) }),
-        NdRateButton("dislike", dislikeLabel, stringResource(R.string.nd_rate_saved, dislikeLabel), titleRating == TitleRating.DISLIKE, true,
-            { on, c -> DetailGlyphIcon(DetailGlyph.THUMB_DOWN, on, c, 18.dp) }, { onRate(TitleRating.DISLIKE) }),
+        NdRateButton(
+            key = "mdblist_rate",
+            label = "Rate on MDBList",
+            activeLabel = ratingActiveLabel,
+            active = mdbListUserRating != null,
+            enabled = !mdbListRatingPending,
+            icon = { on, c ->
+                if (on && mdbListUserRating != null) {
+                    Text(
+                        text = "$mdbListUserRating",
+                        color = Color(0xFFCFDCE8),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Outlined.StarBorder,
+                        contentDescription = null,
+                        tint = c,
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+            },
+            onClick = { pickerOpen = !pickerOpen }
+        ),
         // Bin (was Watchlist): press for the starred bin, hold for the list of bins.
         NdRateButton("bin", stringResource(R.string.nd_bin_add), inBinLabel, inBin, true,
             { on, c -> DetailGlyphIcon(DetailGlyph.STAR, on, c, 18.dp) }, onToggleLibrary, onLibraryLongPress),
@@ -1220,37 +1255,111 @@ private fun NdRatingRow(
             onOpenBackdrop)
     )
     var focusedKey by remember { mutableStateOf<String?>(null) }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        buttons.forEach { button ->
-            val focused = focusedKey == button.key
-            val scale by animateFloatAsState(if (focused) 1.08f else 1f, tween(140), label = "ndRateScale")
-            Box(
-                modifier = Modifier
-                    .graphicsLayer { scaleX = scale; scaleY = scale }
-                    .size(32.dp)
-                    .then(if (focused) Modifier.detailGlassLens(CircleShape) else Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.08f)))
-                    .then(if (button.key == "bin") Modifier.onGloballyPositioned { onBinBounds(it.boundsInRoot()) } else Modifier)
-                    .ndClickable(
-                        focusRequester = when (button.key) {
-                            "like" -> firstFocus
-                            "bin" -> binFocus
-                            else -> null
-                        },
-                        onFocusChanged = { f ->
-                            if (f) focusedKey = button.key else if (focusedKey == button.key) focusedKey = null
-                        },
-                        onLongClick = button.onLongClick,
-                        onClick = { if (button.enabled) button.onClick() }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                button.icon(button.active, if (focused) Color.White else Color.White.copy(alpha = 0.88f))
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            buttons.forEach { button ->
+                val focused = focusedKey == button.key
+                val scale by animateFloatAsState(if (focused) 1.08f else 1f, tween(140), label = "ndRateScale")
+                Box(
+                    modifier = Modifier
+                        .graphicsLayer { scaleX = scale; scaleY = scale }
+                        .size(32.dp)
+                        .then(if (focused) Modifier.detailGlassLens(CircleShape) else Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.08f)))
+                        .then(if (button.key == "bin") Modifier.onGloballyPositioned { onBinBounds(it.boundsInRoot()) } else Modifier)
+                        .ndClickable(
+                            focusRequester = when (button.key) {
+                                "mdblist_rate" -> firstFocus
+                                "bin" -> binFocus
+                                else -> null
+                            },
+                            onFocusChanged = { f ->
+                                if (f) focusedKey = button.key else if (focusedKey == button.key) focusedKey = null
+                            },
+                            onLongClick = button.onLongClick,
+                            onClick = { if (button.enabled) button.onClick() }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    button.icon(button.active, if (focused) Color.White else Color.White.copy(alpha = 0.88f))
+                }
+            }
+            val label = buttons.firstOrNull { it.key == focusedKey }?.let { if (it.active) it.activeLabel ?: it.label else it.label }
+            if (label != null) {
+                Spacer(Modifier.width(4.dp))
+                Text(label, color = NdText2, fontSize = 12.sp, maxLines = 1)
             }
         }
-        val label = buttons.firstOrNull { it.key == focusedKey }?.let { if (it.active) it.activeLabel ?: it.label else it.label }
-        if (label != null) {
-            Spacer(Modifier.width(4.dp))
-            Text(label, color = NdText2, fontSize = 12.sp, maxLines = 1)
+        if (pickerOpen) {
+            val firstScoreFocus = remember { FocusRequester() }
+            LaunchedEffect(Unit) {
+                runCatching { firstScoreFocus.requestFocus() }
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .detailGlassPanel(RoundedCornerShape(14.dp), strength = 1.4f)
+                    .padding(horizontal = 8.dp, vertical = 5.dp)
+            ) {
+                (1..10).forEach { score ->
+                    var scoreFocused by remember { mutableStateOf(false) }
+                    val isSelected = mdbListUserRating == score
+                    Box(
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(
+                                when {
+                                    scoreFocused -> Color(0xFFCFDCE8)
+                                    isSelected -> Color(0xFFCFDCE8).copy(alpha = 0.28f)
+                                    else -> Color.White.copy(alpha = 0.08f)
+                                }
+                            )
+                            .ndClickable(
+                                focusRequester = if (score == (mdbListUserRating ?: 8)) firstScoreFocus else null,
+                                onFocusChanged = { scoreFocused = it },
+                                onClick = {
+                                    onRateMdbList(score)
+                                    pickerOpen = false
+                                    runCatching { firstFocus.requestFocus() }
+                                }
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "$score",
+                            color = if (scoreFocused) Color.Black else Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected || scoreFocused) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
+                }
+                if (mdbListUserRating != null) {
+                    var clearFocused by remember { mutableStateOf(false) }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (clearFocused) Color.White else Color.White.copy(alpha = 0.12f))
+                            .ndClickable(
+                                onFocusChanged = { clearFocused = it },
+                                onClick = {
+                                    onRemoveMdbListRating()
+                                    pickerOpen = false
+                                    runCatching { firstFocus.requestFocus() }
+                                }
+                            )
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Clear",
+                            color = if (clearFocused) Color.Black else Color.White.copy(alpha = 0.88f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
         }
     }
 }

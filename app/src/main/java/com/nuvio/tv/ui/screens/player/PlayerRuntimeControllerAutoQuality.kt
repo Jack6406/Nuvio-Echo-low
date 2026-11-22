@@ -124,6 +124,10 @@ internal fun PlayerRuntimeController.cancelAutoQualityChange(byViewer: Boolean) 
 }
 
 private fun PlayerRuntimeController.autoQualityTick() {
+    if (com.nuvio.tv.core.player.StreamAutoPlaySelector.isManualSelectionLocked(currentStreamUrl)) {
+        leaveAutoQuality()
+        return
+    }
     val enabled = autoQualityAvailable()
     // Picked at the start of every playback while the setting is on, until a quality is picked by hand.
     val active = enabled && (autoQualityUserChoice ?: true)

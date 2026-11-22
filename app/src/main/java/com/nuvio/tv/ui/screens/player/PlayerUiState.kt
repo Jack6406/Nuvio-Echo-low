@@ -78,6 +78,7 @@ data class PlayerUiState(
     val currentStreamDescription: String? = null,
     val currentStreamBadges: List<StreamBadge> = emptyList(),
     val backdrop: String? = null,
+    val pauseBackdrops: List<String> = emptyList(),
     val logo: String? = null,
     val description: String? = null,
     val castMembers: List<MetaCastMember> = emptyList(),

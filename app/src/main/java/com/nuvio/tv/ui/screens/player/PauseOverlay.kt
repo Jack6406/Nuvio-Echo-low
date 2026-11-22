@@ -56,6 +56,7 @@ import com.nuvio.tv.ui.util.contentTextDirection
 import com.nuvio.tv.ui.util.localizeEpisodeTitle
 import kotlinx.coroutines.delay
 import java.util.Date
+import androidx.compose.runtime.mutableIntStateOf
 
 /**
  * Shown once playback has been paused: shifts the title, synopsis, and remaining-time bar upward
@@ -87,6 +88,18 @@ fun PauseOverlay(
     val effectiveCast = remember(castMembers, playerUiState.castMembers) {
         (if (castMembers.isNotEmpty()) castMembers else playerUiState.castMembers).take(8)
     }
+    val rotatingBackdrops = remember(playerUiState.pauseBackdrops, playerUiState.backdrop) {
+        playerUiState.pauseBackdrops.ifEmpty { listOfNotNull(playerUiState.backdrop?.takeIf { it.isNotBlank() }) }
+    }
+    var activeBackdropIndex by remember(rotatingBackdrops) { mutableIntStateOf(0) }
+    LaunchedEffect(visible, rotatingBackdrops) {
+        if (!visible || rotatingBackdrops.size <= 1) return@LaunchedEffect
+        while (true) {
+            kotlinx.coroutines.delay(5L * 60_000L)
+            activeBackdropIndex = (activeBackdropIndex + 1) % rotatingBackdrops.size
+        }
+    }
+    val activeBackdropUrl = rotatingBackdrops.getOrNull(activeBackdropIndex)
 
     // #5: Aggressive RAM eviction when entering PlayerScreen; restores normal image queue on exit.
     DisposableEffect(Unit) {
@@ -131,6 +144,21 @@ fun PauseOverlay(
             if (showClock) PauseOverlayClock(modifier = Modifier.padding(top = 36.dp, end = 52.dp))
         }
     ) {
+        if (!activeBackdropUrl.isNullOrBlank()) {
+            val backdropRequest = remember(context, activeBackdropUrl) {
+                ImageRequest.Builder(context)
+                    .data(activeBackdropUrl)
+                    .size(1920, 1080)
+                    .crossfade(800)
+                    .build()
+            }
+            AsyncImage(
+                model = backdropRequest,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
         // Darkest in the lower-left, behind the text and cast row, and clear towards the top right.
         Box(
             modifier = Modifier

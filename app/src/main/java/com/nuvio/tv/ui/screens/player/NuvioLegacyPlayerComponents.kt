@@ -90,6 +90,8 @@ import com.nuvio.tv.ui.components.StreamBadgeChips
 import com.nuvio.tv.ui.newlook.AmbientWashState
 import com.nuvio.tv.ui.util.localizeEpisodeTitle
 import java.util.Locale
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 
 private const val PREFS_PLAYER_STYLE = "nuvio_legacy_player_style"
 private const val KEY_ACCENT_HEX = "player_accent_hex"
@@ -420,6 +422,9 @@ fun NuvioLegacyPrimaryPlayButton(
         onClick = onClick,
         modifier = modifier
             .height(36.dp)
+            .pointerInput(onClick) {
+                detectTapGestures(onTap = { onClick() })
+            }
             .focusRequester(focusRequester)
             .focusProperties { up = upFocusRequester }
             .onPreviewKeyEvent { event ->
@@ -521,6 +526,9 @@ fun NuvioLegacyCircleIconButton(
         enabled = enabled,
         modifier = modifier
             .height(36.dp)
+            .pointerInput(onClick, enabled) {
+                detectTapGestures(onTap = { if (enabled) onClick() })
+            }
             .widthIn(min = 36.dp)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .focusProperties { up = upFocusRequester }
