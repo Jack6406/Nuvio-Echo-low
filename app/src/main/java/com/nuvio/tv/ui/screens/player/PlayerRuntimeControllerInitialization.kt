@@ -374,7 +374,11 @@ internal fun PlayerRuntimeController.initializePlayer(
                 streamMetaText.contains("2160") ||
                 streamMetaText.contains("4k") ||
                 (!streamMetaText.contains("1080p") && !streamMetaText.contains("720p") && !streamMetaText.contains("h264") && !streamMetaText.contains("x264"))
-            val dv7ToDv81SettingActive = effectiveDv7Mode == Dv7HandlingMode.DV81_LIBDOVI && mightBeDolbyVisionStream
+            val lowRamBlocksAutoDv7 = com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode &&
+                playerSettings.dv7HandlingMode == Dv7HandlingMode.AUTO
+            val dv7ToDv81SettingActive = effectiveDv7Mode == Dv7HandlingMode.DV81_LIBDOVI &&
+                mightBeDolbyVisionStream &&
+                !lowRamBlocksAutoDv7
             val dv7ToDv81Probe = if (dv7ToDv81SettingActive) {
                 DoviBridge.probeRealtimeConversionSupport(url)
             } else {

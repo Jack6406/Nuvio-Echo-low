@@ -1788,6 +1788,11 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         is PlayerEvent.OnSetSubtitleOutlineColor -> {
             scope.launch { playerSettingsDataStore.setSubtitleOutlineColor(event.color) }
         }
+        is PlayerEvent.OnSetSubtitleOutlineWidth -> {
+            val clamped = event.width.coerceIn(1, 6)
+            _uiState.update { it.copy(subtitleStyle = it.subtitleStyle.copy(outlineWidth = clamped)) }
+            scope.launch { playerSettingsDataStore.setSubtitleOutlineWidth(clamped) }
+        }
         is PlayerEvent.OnSetSubtitleVerticalOffset -> {
             scope.launch { playerSettingsDataStore.setSubtitleVerticalOffset(event.offset) }
         }

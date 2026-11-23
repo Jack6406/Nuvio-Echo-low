@@ -96,8 +96,8 @@ class NewDetailsViewModel @Inject constructor(
     private val _titleReviews = MutableStateFlow(ReviewsState())
     val titleReviews: StateFlow<ReviewsState> = _titleReviews.asStateFlow()
 
-    private val _mdbListUserRating = MutableStateFlow<Int?>(null)
-    val mdbListUserRating: StateFlow<Int?> = _mdbListUserRating.asStateFlow()
+    private val _mdbListUserRating = MutableStateFlow<Double?>(null)
+    val mdbListUserRating: StateFlow<Double?> = _mdbListUserRating.asStateFlow()
 
     private val _mdbListRatingPending = MutableStateFlow(false)
     val mdbListRatingPending: StateFlow<Boolean> = _mdbListRatingPending.asStateFlow()
@@ -133,10 +133,11 @@ class NewDetailsViewModel @Inject constructor(
         }
     }
 
-    fun setMdbListRating(meta: Meta, rating: Int) {
+    fun setMdbListRating(meta: Meta, rating: Double) {
         if (_mdbListRatingPending.value) return
         val previous = _mdbListUserRating.value
-        _mdbListUserRating.value = rating.coerceIn(1, 10)
+        val snapped = (kotlin.math.round(rating.coerceIn(1.0, 10.0) * 2.0) / 2.0)
+        _mdbListUserRating.value = snapped
         _mdbListRatingPending.value = true
         viewModelScope.launch(Dispatchers.IO) {
             val ok = runCatching { mdbListRepository.setUserRatingForMeta(meta, rating) }.getOrDefault(false)

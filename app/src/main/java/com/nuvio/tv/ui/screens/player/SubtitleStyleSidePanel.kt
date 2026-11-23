@@ -248,10 +248,14 @@ internal fun SubtitleStyleSidePanel(
                                 isEnabled = subtitleStyle.outlineEnabled,
                                 onClick = { onEvent(PlayerEvent.OnSetSubtitleOutlineEnabled(!subtitleStyle.outlineEnabled)) }
                             )
-                            Text(
-                                text = stringResource(R.string.subtitle_style_color),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.White.copy(alpha = 0.7f)
+                            SubtitleStyleStepperButton(
+                                icon = Icons.Default.Remove,
+                                onClick = { onEvent(PlayerEvent.OnSetSubtitleOutlineWidth((subtitleStyle.outlineWidth - 1).coerceAtLeast(1))) }
+                            )
+                            SubtitleStyleValueDisplay(text = "${subtitleStyle.outlineWidth}px")
+                            SubtitleStyleStepperButton(
+                                icon = Icons.Default.Add,
+                                onClick = { onEvent(PlayerEvent.OnSetSubtitleOutlineWidth((subtitleStyle.outlineWidth + 1).coerceAtMost(6))) }
                             )
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

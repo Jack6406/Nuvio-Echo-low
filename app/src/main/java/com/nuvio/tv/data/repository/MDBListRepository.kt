@@ -29,7 +29,7 @@ class MDBListRepository internal constructor(
         @dagger.hilt.android.qualifiers.ApplicationContext context: android.content.Context
     ) : this(api, settingsDataStore, tmdbService, MdbListRatingsLoader(api, MdbListRatingsDiskCache(context)))
 
-    private val userRatingsCache = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val userRatingsCache = java.util.concurrent.ConcurrentHashMap<String, Double>()
     @Volatile
     private var userRatingsLoadedAtMs: Long = 0L
 
@@ -49,7 +49,7 @@ class MDBListRepository internal constructor(
         return keys
     }
 
-    private suspend fun buildSyncRatingPayload(meta: Meta, rating: Int?): String? {
+    private suspend fun buildSyncRatingPayload(meta: Meta, rating: Double?): String? {
         val isShow = meta.type == com.nuvio.tv.domain.model.ContentType.SERIES ||
             meta.type == com.nuvio.tv.domain.model.ContentType.TV ||
             meta.apiType.equals("series", ignoreCase = true) ||
@@ -66,7 +66,10 @@ class MDBListRepository internal constructor(
         }
         val entry = org.json.JSONObject().apply {
             put("ids", ids)
-            if (rating != null) put("rating", rating.coerceIn(1, 10))
+            if (rating != null) {
+                val snapped = (kotlin.math.round(rating.coerceIn(1.0, 10.0) * 2.0) / 2.0)
+                if (snapped % 1.0 == 0.0) put("rating", snapped.toInt()) else put("rating", snapped)
+            }
         }
         val arr = org.json.JSONArray().put(entry)
         return org.json.JSONObject().put(groupKey, arr).toString()
@@ -80,8 +83,8 @@ class MDBListRepository internal constructor(
                 val arr = root.optJSONArray(arrayName) ?: return
                 for (i in 0 until arr.length()) {
                     val obj = arr.optJSONObject(i) ?: continue
-                    val score = obj.optInt("rating", 0)
-                    if (score !in 1..10) continue
+                    val score = obj.optDouble("rating", 0.0)
+                    if (score < 0.5 || score > 10.0) continue
                     val target = obj.optJSONObject(itemObjName) ?: obj
                     val ids = target.optJSONObject("ids") ?: obj.optJSONObject("ids")
                     val imdb = ids?.optString("imdb")?.takeIf { it.startsWith("tt") }
@@ -98,7 +101,7 @@ class MDBListRepository internal constructor(
         }
     }
 
-    suspend fun getUserRatingForMeta(meta: Meta, forceRefresh: Boolean = false): Int? {
+    suspend fun getUserRatingForMeta(meta: Meta, forceRefresh: Boolean = false): Double? {
         val settings = settingsDataStore.settings.first()
         val credential = api.credential(settings.apiKey) ?: return null
         val keys = ratingCacheKeys(meta)
@@ -115,14 +118,14 @@ class MDBListRepository internal constructor(
         return keys.firstNotNullOfOrNull { userRatingsCache[it] }
     }
 
-    suspend fun setUserRatingForMeta(meta: Meta, rating: Int): Boolean {
+    suspend fun setUserRatingForMeta(meta: Meta, rating: Double): Boolean {
         val settings = settingsDataStore.settings.first()
         val credential = api.credential(settings.apiKey) ?: return false
-        val clamped = rating.coerceIn(1, 10)
-        val payload = buildSyncRatingPayload(meta, clamped) ?: return false
+        val snapped = (kotlin.math.round(rating.coerceIn(1.0, 10.0) * 2.0) / 2.0)
+        val payload = buildSyncRatingPayload(meta, snapped) ?: return false
         val ok = runCatching { api.postSyncRatingsJson(payload, credential) }.getOrDefault(false)
         if (ok) {
-            ratingCacheKeys(meta).forEach { userRatingsCache[it] = clamped }
+            ratingCacheKeys(meta).forEach { userRatingsCache[it] = snapped }
         }
         return ok
     }

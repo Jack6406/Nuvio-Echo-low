@@ -99,6 +99,8 @@ import java.util.Locale
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.focus.onFocusChanged
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -268,17 +270,66 @@ private fun CastDetailContent(
                         shrinkVertically(shrinkTowards = Alignment.Top) +
                         slideOutVertically(targetOffsetY = { it })
                 ) {
-                    val watchedCount = remember(allCredits, isItemWatched) {
-                        allCredits.count { isItemWatched(it) }
+                    var creditFilter by rememberSaveable(person.tmdbId) { mutableIntStateOf(0) }
+                    val filteredCredits = remember(allCredits, person.movieCredits, person.tvCredits, creditFilter) {
+                        when (creditFilter) {
+                            1 -> person.movieCredits.distinctBy { it.id }.sortedByDescending { releaseYearSortKey(it.releaseInfo) }
+                            2 -> person.tvCredits.distinctBy { it.id }.sortedByDescending { releaseYearSortKey(it.releaseInfo) }
+                            else -> allCredits
+                        }
+                    }
+                    val watchedCount = remember(filteredCredits, isItemWatched) {
+                        filteredCredits.count { isItemWatched(it) }
                     }
                     Column {
-                        SectionHeader(
-                            title = stringResource(R.string.cast_detail_filmography),
-                            count = allCredits.size,
-                            watchedCount = watchedCount
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            SectionHeader(
+                                title = stringResource(R.string.cast_detail_filmography),
+                                count = filteredCredits.size,
+                                watchedCount = watchedCount
+                            )
+                            if (person.movieCredits.isNotEmpty() && person.tvCredits.isNotEmpty()) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    listOf(
+                                        0 to "All",
+                                        1 to "Movies",
+                                        2 to "Series"
+                                    ).forEach { (mode, label) ->
+                                        val selected = creditFilter == mode
+                                        var chipFocused by remember { mutableStateOf(false) }
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(999.dp))
+                                                .background(
+                                                    when {
+                                                        chipFocused -> Color(0xFFCFDCE8)
+                                                        selected -> Color.White.copy(alpha = 0.22f)
+                                                        else -> Color.White.copy(alpha = 0.08f)
+                                                    }
+                                                )
+                                                .clickable { creditFilter = mode }
+                                                .onFocusChanged { chipFocused = it.isFocused }
+                                                .padding(horizontal = 12.dp, vertical = 5.dp)
+                                        ) {
+                                            Text(
+                                                text = label,
+                                                color = if (chipFocused) Color.Black else Color.White,
+                                                style = MaterialTheme.typography.labelMedium
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         FilmographyRow(
-                            credits = allCredits,
+                            credits = filteredCredits,
                             posterCardStyle = filmographyPosterStyle,
                             firstItemFocusRequester = firstPosterFocusRequester,
                             restoreItemId = pendingRestoreItemId,

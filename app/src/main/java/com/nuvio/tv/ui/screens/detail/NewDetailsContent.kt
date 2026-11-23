@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -113,6 +114,8 @@ import com.nuvio.tv.ui.util.rememberLongPressKeyTracker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.outlined.BookmarkBorder
 
 internal val NdText2 = Color(0xFFB3B3B3)
 internal val NdText3 = Color(0xFF808080)
@@ -804,12 +807,12 @@ private fun NdHero(
     hasCustomBackdrop: Boolean,
     preselectedStream: PreselectedStreamInfo? = null,
     titleRating: TitleRating?,
-    mdbListUserRating: Int?,
+    mdbListUserRating: Double?,
     mdbListRatingPending: Boolean,
     watched: Boolean,
     watchedPending: Boolean,
     onRate: (TitleRating) -> Unit,
-    onRateMdbList: (Int) -> Unit,
+    onRateMdbList: (Double) -> Unit,
     onRemoveMdbListRating: () -> Unit,
     onToggleWatched: () -> Unit,
     onToggleLibrary: () -> Unit,
@@ -1196,11 +1199,14 @@ private data class NdRateButton(
     val onLongClick: (() -> Unit)? = null
 )
 
-/** MDBList 1-10 rating, watchlist/bin, watched, and backdrop: one row of glass circles with inline 1-10 picker. */
+private fun formatMdbScore(score: Double): String =
+    if (score % 1.0 == 0.0) score.toInt().toString() else String.format(java.util.Locale.US, "%.1f", score)
+
+/** MDBList 1-10 (0.5 step) rating, watchlist/bin (Bookmark icon), watched, and backdrop: one row of glass circles. */
 @Composable
 private fun NdRatingRow(
     firstFocus: FocusRequester,
-    mdbListUserRating: Int?,
+    mdbListUserRating: Double?,
     mdbListRatingPending: Boolean,
     inBin: Boolean,
     inBinLabel: String?,
@@ -1209,7 +1215,7 @@ private fun NdRatingRow(
     watched: Boolean,
     watchedPending: Boolean,
     hasCustomBackdrop: Boolean,
-    onRateMdbList: (Int) -> Unit,
+    onRateMdbList: (Double) -> Unit,
     onRemoveMdbListRating: () -> Unit,
     onToggleLibrary: () -> Unit,
     onLibraryLongPress: () -> Unit,
@@ -1217,7 +1223,7 @@ private fun NdRatingRow(
     onOpenBackdrop: () -> Unit
 ) {
     var pickerOpen by remember { mutableStateOf(false) }
-    val ratingActiveLabel = mdbListUserRating?.let { "MDBList ★ $it/10" }
+    val ratingActiveLabel = mdbListUserRating?.let { "MDBList ★ ${formatMdbScore(it)}/10" }
     val buttons = listOf(
         NdRateButton(
             key = "mdblist_rate",
@@ -1228,10 +1234,11 @@ private fun NdRatingRow(
             icon = { on, c ->
                 if (on && mdbListUserRating != null) {
                     Text(
-                        text = "$mdbListUserRating",
+                        text = formatMdbScore(mdbListUserRating),
                         color = Color(0xFFCFDCE8),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
+                        fontSize = if (mdbListUserRating % 1.0 == 0.0) 12.sp else 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
                     )
                 } else {
                     Icon(
@@ -1244,9 +1251,16 @@ private fun NdRatingRow(
             },
             onClick = { pickerOpen = !pickerOpen }
         ),
-        // Bin (was Watchlist): press for the starred bin, hold for the list of bins.
+        // Bin (Saved / Watchlist): Bookmark icon so it is visually distinct from the ★ MDBList Rating button.
         NdRateButton("bin", stringResource(R.string.nd_bin_add), inBinLabel, inBin, true,
-            { on, c -> DetailGlyphIcon(DetailGlyph.STAR, on, c, 18.dp) }, onToggleLibrary, onLibraryLongPress),
+            { on, c ->
+                Icon(
+                    imageVector = if (on) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                    contentDescription = null,
+                    tint = c,
+                    modifier = Modifier.size(18.dp)
+                )
+            }, onToggleLibrary, onLibraryLongPress),
         NdRateButton("watched", stringResource(R.string.nd_mark_watched), stringResource(R.string.nd_watched), watched, !watchedPending,
             { on, c -> Icon(if (on) Icons.Filled.Visibility else Icons.Outlined.Visibility, null, tint = c, modifier = Modifier.size(19.dp)) },
             onToggleWatched),
@@ -1290,24 +1304,36 @@ private fun NdRatingRow(
             }
         }
         if (pickerOpen) {
+            val halfStepScores = remember { (2..20).map { it / 2.0 } }
+            val targetScore = mdbListUserRating ?: 8.0
+            val targetIndex = remember(targetScore) {
+                halfStepScores.indexOfFirst { kotlin.math.abs(it - targetScore) < 0.05 }.coerceAtLeast(0)
+            }
+            val scoreListState = rememberLazyListState(initialFirstVisibleItemIndex = (targetIndex - 3).coerceAtLeast(0))
             val firstScoreFocus = remember { FocusRequester() }
             LaunchedEffect(Unit) {
+                kotlinx.coroutines.delay(40)
                 runCatching { firstScoreFocus.requestFocus() }
             }
-            Row(
+            LazyRow(
+                state = scoreListState,
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier
+                    .widthIn(max = 460.dp)
                     .detailGlassPanel(RoundedCornerShape(14.dp), strength = 1.4f)
                     .padding(horizontal = 8.dp, vertical = 5.dp)
             ) {
-                (1..10).forEach { score ->
+                items(halfStepScores.size, key = { idx -> halfStepScores[idx] }) { idx ->
+                    val score = halfStepScores[idx]
                     var scoreFocused by remember { mutableStateOf(false) }
-                    val isSelected = mdbListUserRating == score
+                    val isSelected = mdbListUserRating != null && kotlin.math.abs(mdbListUserRating - score) < 0.05
+                    val isWhole = score % 1.0 == 0.0
                     Box(
                         modifier = Modifier
-                            .size(26.dp)
-                            .clip(CircleShape)
+                            .height(26.dp)
+                            .widthIn(min = if (isWhole) 26.dp else 32.dp)
+                            .clip(RoundedCornerShape(13.dp))
                             .background(
                                 when {
                                     scoreFocused -> Color(0xFFCFDCE8)
@@ -1316,47 +1342,52 @@ private fun NdRatingRow(
                                 }
                             )
                             .ndClickable(
-                                focusRequester = if (score == (mdbListUserRating ?: 8)) firstScoreFocus else null,
+                                focusRequester = if (idx == targetIndex) firstScoreFocus else null,
                                 onFocusChanged = { scoreFocused = it },
                                 onClick = {
                                     onRateMdbList(score)
                                     pickerOpen = false
                                     runCatching { firstFocus.requestFocus() }
                                 }
-                            ),
+                            )
+                            .padding(horizontal = 6.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "$score",
+                            text = formatMdbScore(score),
                             color = if (scoreFocused) Color.Black else Color.White,
                             fontSize = 11.sp,
-                            fontWeight = if (isSelected || scoreFocused) FontWeight.Bold else FontWeight.Medium
+                            fontWeight = if (isSelected || scoreFocused) FontWeight.Bold else FontWeight.Medium,
+                            maxLines = 1
                         )
                     }
                 }
                 if (mdbListUserRating != null) {
-                    var clearFocused by remember { mutableStateOf(false) }
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (clearFocused) Color.White else Color.White.copy(alpha = 0.12f))
-                            .ndClickable(
-                                onFocusChanged = { clearFocused = it },
-                                onClick = {
-                                    onRemoveMdbListRating()
-                                    pickerOpen = false
-                                    runCatching { firstFocus.requestFocus() }
-                                }
+                    item(key = "clear_rating") {
+                        var clearFocused by remember { mutableStateOf(false) }
+                        Box(
+                            modifier = Modifier
+                                .height(26.dp)
+                                .clip(RoundedCornerShape(13.dp))
+                                .background(if (clearFocused) Color.White else Color.White.copy(alpha = 0.12f))
+                                .ndClickable(
+                                    onFocusChanged = { clearFocused = it },
+                                    onClick = {
+                                        onRemoveMdbListRating()
+                                        pickerOpen = false
+                                        runCatching { firstFocus.requestFocus() }
+                                    }
+                                )
+                                .padding(horizontal = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Clear",
+                                color = if (clearFocused) Color.Black else Color.White.copy(alpha = 0.88f),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
                             )
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Clear",
-                            color = if (clearFocused) Color.Black else Color.White.copy(alpha = 0.88f),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        }
                     }
                 }
             }

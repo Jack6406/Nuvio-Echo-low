@@ -938,7 +938,9 @@ internal fun PlayerRuntimeController.switchToSourceStream(
     nextEpisodeAutoPlayJob?.cancel()
     nextEpisodeAutoPlayJob = null
 
+    val preservedSwitchPositionMs = (_exoPlayer?.currentPosition ?: lastSavedPosition).coerceAtLeast(0L)
     flushPlaybackSnapshotForSwitchOrExit()
+    com.nuvio.tv.core.player.StreamAutoPlaySelector.markManualSelection(url)
 
     val newHeaders = PlayerMediaSourceFactory.sanitizeHeaders(
         stream.behaviorHints?.proxyHeaders?.request
@@ -964,7 +966,24 @@ internal fun PlayerRuntimeController.switchToSourceStream(
     subtitleDisabledByPersistedPreference = false
     subtitleAddonRestoredByPersistedPreference = false
     pendingRestoredAddonSubtitle = null
-    lastSavedPosition = 0L
+    lastSavedPosition = preservedSwitchPositionMs
+    if (preservedSwitchPositionMs > 0L) {
+        pendingResumeProgress = com.nuvio.tv.domain.model.WatchProgress(
+            contentId = contentId.orEmpty(),
+            contentType = contentType.orEmpty(),
+            name = title,
+            poster = poster,
+            backdrop = backdrop,
+            logo = logo,
+            videoId = currentVideoId ?: contentId.orEmpty(),
+            season = currentSeason,
+            episode = currentEpisode,
+            episodeTitle = currentEpisodeTitle,
+            position = preservedSwitchPositionMs,
+            duration = (_exoPlayer?.duration ?: 0L).coerceAtLeast(0L),
+            lastWatched = System.currentTimeMillis()
+        )
+    }
     _exoPlayer?.stop()
     resetLoadingOverlayForNewStream()
 

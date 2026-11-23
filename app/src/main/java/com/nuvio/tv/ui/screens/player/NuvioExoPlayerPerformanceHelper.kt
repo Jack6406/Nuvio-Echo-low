@@ -276,7 +276,8 @@ object NuvioExoPlayerPerformanceHelper {
     private fun effectiveBackBufferMs(): Int {
         if (backBufferMs <= 0) return 0
         val ceiling = (minBufferMs.toLong() * BACK_BUFFER_TARGET_SHARE_NUM / BACK_BUFFER_TARGET_SHARE_DEN).toInt()
-        return backBufferMs.coerceAtMost(ceiling)
+        val lowRamCap = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) 5_000 else Int.MAX_VALUE
+        return backBufferMs.coerceAtMost(ceiling).coerceAtMost(lowRamCap)
     }
 
     /**

@@ -336,13 +336,18 @@ private class DebugStatsSampler(context: Context) {
         return DebugStat("dropped", "$dropped frames", warn = dropped > 0)
     }
 
-    // Headroom is normalised so 1.00 is the throttling point; the status line only matters once it trips.
+    private var thermalHeadroomUnsupported: Boolean = false
+
+    // Headroom is normalised so 1.00 is the throttling point; stop polling if the device cannot report it.
     private fun thermalStats(): List<DebugStat> {
         val pm = powerManager ?: return listOf(DebugStat("thermal", UNAVAILABLE))
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || thermalHeadroomUnsupported) {
             return listOf(DebugStat("thermal", UNAVAILABLE))
         }
         val headroom = runCatching { pm.getThermalHeadroom(0) }.getOrDefault(Float.NaN)
+        if (headroom.isNaN() || headroom <= 0f) {
+            thermalHeadroomUnsupported = true
+        }
         val status = runCatching { pm.currentThermalStatus }.getOrDefault(PowerManager.THERMAL_STATUS_NONE)
         val headroomStat = DebugStat(
             label = "thermal",
