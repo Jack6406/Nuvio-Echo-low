@@ -9,6 +9,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -1011,7 +1012,7 @@ private fun NdHero(
                     val runtimePart = meta.runtime?.trim()?.takeIf { it.isNotBlank() }
                     val imdbVal = state.mdbListRatings?.imdb ?: meta.imdbRating?.toDouble()
                     val imdbPart = imdbVal?.takeIf { it > 0.0 }?.let { "IMDb ${String.format(java.util.Locale.US, "%.1f", it)}" }
-                    val rtPart = state.mdbListRatings?.tomatoes?.takeIf { it > 0 }?.let { "RT ${it}%" }
+                    val rtPart = state.mdbListRatings?.tomatoes?.takeIf { it > 0.0 }?.let { "RT ${it.toInt()}%" }
                     listOfNotNull(genresPart, yearPart, runtimePart, imdbPart, rtPart).joinToString("  •  ")
                 }
                 if (compactMetaLine.isNotBlank()) {
