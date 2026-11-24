@@ -847,98 +847,183 @@ private fun NdHero(
         }
     }
 
+    val heroAccent = com.nuvio.tv.ui.screens.player.rememberDynamicArtworkAccent(meta.background ?: meta.poster)
+    val heroAccentContent = if (
+        (heroAccent.red * 0.299f + heroAccent.green * 0.587f + heroAccent.blue * 0.114f) > 0.62f
+    ) Color(0xFF0A0C10) else Color.White
+
     Box(
         modifier = Modifier
             .bringIntoViewResponder(noScroll)
             .fillMaxWidth()
-            .heightIn(min = 460.dp)
-            .padding(start = 48.dp, end = 48.dp, top = if (isSeries) 24.dp else 34.dp, bottom = 12.dp)
+            .heightIn(min = 470.dp)
+            .padding(start = 52.dp, end = 52.dp, top = if (isSeries) 110.dp else 132.dp, bottom = 18.dp)
             .onFocusChanged { if (it.hasFocus) onFocusedInHero() }
     ) {
-        Column(modifier = Modifier.fillMaxWidth(0.46f)) {
+        Column(modifier = Modifier.fillMaxWidth(0.56f)) {
             if (!meta.logo.isNullOrBlank() && !logoFailed) {
                 AsyncImage(
                     model = remember(meta.logo) { ImageRequest.Builder(context).data(meta.logo).crossfade(true).build() },
                     contentDescription = meta.name,
                     onError = { logoFailed = true },
-                    modifier = Modifier.height(if (isSeries) 50.dp else 60.dp).fillMaxWidth(0.8f),
+                    modifier = Modifier.height(64.dp).fillMaxWidth(0.75f),
                     contentScale = ContentScale.Fit,
                     alignment = Alignment.CenterStart
                 )
-                Spacer(Modifier.height(if (isSeries) 8.dp else 12.dp))
+                Spacer(Modifier.height(16.dp))
             } else {
-                Text(meta.name, color = Color.White, fontSize = if (isSeries) 28.sp else 32.sp, lineHeight = if (isSeries) 34.sp else 40.sp, fontWeight = FontWeight.Bold, maxLines = 2)
-                Spacer(Modifier.height(if (isSeries) 6.dp else 10.dp))
+                Text(
+                    meta.name,
+                    color = Color.White,
+                    fontSize = 36.sp,
+                    lineHeight = 42.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2
+                )
+                Spacer(Modifier.height(14.dp))
             }
-            NdMetaLines(meta = meta, isSeries = isSeries, tmdbRating = state.tmdbRating, mdbListRatings = state.mdbListRatings)
-            Spacer(Modifier.height(if (isSeries) 6.dp else 10.dp))
-            NdSynopsis(
-                meta = meta,
-                isSeries = isSeries,
-                castOnly = castOnly,
-                crew = crew,
-                open = synopsisOpen,
-                onOpenChange = { synopsisOpen = it },
-                modifier = Modifier.zIndex(2f)
-            )
-            Column(Modifier.alpha(dim)) {
-                Spacer(Modifier.height(if (isSeries) 5.dp else 8.dp))
-                NdCredits(isSeries = isSeries, castOnly = castOnly, crew = crew)
-                Spacer(Modifier.height(if (isSeries) 8.dp else 12.dp))
-                val holding = state.bins.filter { it.id in state.titleBinIds }
-                NdRatingRow(
-                    firstFocus = likeFocus,
-                    mdbListUserRating = mdbListUserRating,
-                    mdbListRatingPending = mdbListRatingPending,
-                    inBin = holding.isNotEmpty(),
-                    inBinLabel = when (holding.size) {
-                        0 -> null
-                        1 -> stringResource(R.string.nd_bin_in, holding.single().name)
-                        else -> stringResource(R.string.nd_bin_in_many, holding.size)
-                    },
-                    binFocus = binFocus,
-                    onBinBounds = onBinBounds,
-                    watched = watched,
-                    watchedPending = watchedPending,
-                    hasCustomBackdrop = hasCustomBackdrop,
-                    onRateMdbList = onRateMdbList,
-                    onRemoveMdbListRating = onRemoveMdbListRating,
-                    onToggleLibrary = onToggleLibrary,
-                    onLibraryLongPress = onLibraryLongPress,
-                    onToggleWatched = onToggleWatched,
-                    onOpenBackdrop = onOpenBackdrop
-                )
-                Spacer(Modifier.height(if (isSeries) 6.dp else 10.dp))
-                val customBadge = if (hasCustomBackdrop) stringResource(R.string.nd_backdrop_custom_badge) else null
-                val items = buildList {
-                    if (isSeries) add(NdMenuItem(Icons.Outlined.Tv, stringResource(R.string.nd_menu_episodes),
-                        pluralStringResource(R.plurals.nd_seasons_count, state.seasons.count { it > 0 }, state.seasons.count { it > 0 }),
-                        episodesItemFocus, onOpenEpisodes))
-                    add(NdMenuItem(Icons.Outlined.Group, stringResource(R.string.nd_menu_cast), null, castItemFocus, onOpenCast))
-                    // Manual trailer button: always available whenever a resolved trailer URL or trailer ID exists.
+
+            // Sleek Nuvio-Legacy single horizontal action bar: Dynamic-Colored Play Pill + compact icon buttons
+            var playBtnFocused by remember { mutableStateOf(false) }
+            val playScale by animateFloatAsState(if (playBtnFocused) 1.05f else 1f, tween(140), label = "ndPlayScale")
+            val holding = state.bins.filter { it.id in state.titleBinIds }
+
+            Column(Modifier.alpha(dim), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .graphicsLayer { scaleX = playScale; scaleY = playScale }
+                            .onGloballyPositioned { onPlayBounds(it.boundsInRoot()) }
+                            .height(38.dp)
+                            .clip(NdPill)
+                            .background(if (playBtnFocused) heroAccent else heroAccent.copy(alpha = 0.85f))
+                            .border(
+                                width = if (playBtnFocused) 1.5.dp else 0.5.dp,
+                                color = if (playBtnFocused) Color.White else Color.White.copy(alpha = 0.25f),
+                                shape = NdPill
+                            )
+                            .ndClickable(
+                                focusRequester = playFocus,
+                                onFocusChanged = { f ->
+                                    playBtnFocused = f
+                                    onPlayFocusChanged(f)
+                                    if (f) onPlayFocused()
+                                },
+                                onLongClick = onPlayHold,
+                                onClick = onPlay
+                            )
+                            .padding(horizontal = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(playIcon, null, tint = heroAccentContent, modifier = Modifier.size(18.dp))
+                        Text(
+                            text = playLabel,
+                            color = heroAccentContent,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                        if (!playAside.isNullOrBlank()) {
+                            Text(
+                                text = "· $playAside",
+                                color = heroAccentContent.copy(alpha = 0.80f),
+                                fontSize = 12.sp,
+                                maxLines = 1
+                            )
+                        }
+                    }
+
+                    if (isSeries) {
+                        var epFocused by remember { mutableStateOf(false) }
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .then(if (epFocused) Modifier.detailGlassLens(CircleShape) else Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.12f)))
+                                .ndClickable(
+                                    focusRequester = episodesItemFocus,
+                                    onFocusChanged = { epFocused = it },
+                                    onClick = onOpenEpisodes
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Outlined.Tv, stringResource(R.string.nd_menu_episodes), tint = Color.White, modifier = Modifier.size(18.dp))
+                        }
+                    }
+
                     if (!state.trailerUrl.isNullOrBlank() || hasTrailersTab) {
-                        add(NdMenuItem(Icons.Outlined.Movie, stringResource(R.string.nd_menu_trailer), null, null, onTrailer))
+                        var trFocused by remember { mutableStateOf(false) }
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .then(if (trFocused) Modifier.detailGlassLens(CircleShape) else Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.12f)))
+                                .ndClickable(
+                                    onFocusChanged = { trFocused = it },
+                                    onClick = onTrailer
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Outlined.Movie, stringResource(R.string.nd_menu_trailer), tint = Color.White, modifier = Modifier.size(18.dp))
+                        }
                     }
-                    if (isSeries && meta.videos.isNotEmpty()) {
-                        add(NdMenuItem(Icons.Outlined.Shuffle, stringResource(R.string.nd_menu_random), null, null, onRandomEpisode))
-                    }
-                    add(NdMenuItem(Icons.Outlined.Image, stringResource(R.string.nd_menu_backdrop), customBadge, backdropItemFocus, onOpenBackdrop))
+
+                    NdRatingRow(
+                        firstFocus = likeFocus,
+                        mdbListUserRating = mdbListUserRating,
+                        mdbListRatingPending = mdbListRatingPending,
+                        inBin = holding.isNotEmpty(),
+                        inBinLabel = when (holding.size) {
+                            0 -> null
+                            1 -> stringResource(R.string.nd_bin_in, holding.single().name)
+                            else -> stringResource(R.string.nd_bin_in_many, holding.size)
+                        },
+                        binFocus = binFocus,
+                        onBinBounds = onBinBounds,
+                        watched = watched,
+                        watchedPending = watchedPending,
+                        hasCustomBackdrop = hasCustomBackdrop,
+                        onRateMdbList = onRateMdbList,
+                        onRemoveMdbListRating = onRemoveMdbListRating,
+                        onToggleLibrary = onToggleLibrary,
+                        onLibraryLongPress = onLibraryLongPress,
+                        onToggleWatched = onToggleWatched,
+                        onOpenBackdrop = onOpenBackdrop
+                    )
                 }
-                NdPreselectedStreamBadgesRow(preselected = preselectedStream)
-                Spacer(Modifier.height(4.dp))
-                NdPlayMenu(
-                    upFocus = likeFocus,
-                    playLabel = playLabel,
-                    playIcon = playIcon,
-                    playAside = playAside,
-                    playFocus = playFocus,
-                    onPlay = onPlay,
-                    onPlayHold = onPlayHold,
-                    onPlayBounds = onPlayBounds,
-                    onPlayFocused = onPlayFocused,
-                    onPlayFocusChanged = onPlayFocusChanged,
-                    items = items
+
+                NdSynopsis(
+                    meta = meta,
+                    isSeries = isSeries,
+                    castOnly = castOnly,
+                    crew = crew,
+                    open = synopsisOpen,
+                    onOpenChange = { synopsisOpen = it },
+                    modifier = Modifier.zIndex(2f)
                 )
+
+                // Single sleek metadata strip (Genres · Year · Runtime · IMDb · RT) matching Nuvio Legacy
+                val compactMetaLine = remember(meta, state.tmdbRating, state.mdbListRatings) {
+                    val genresPart = meta.genres.take(2).joinToString(" · ").takeIf { it.isNotBlank() }
+                    val yearPart = meta.releaseInfo?.trim()?.take(4)?.takeIf { it.length == 4 }
+                    val runtimePart = meta.runtime?.trim()?.takeIf { it.isNotBlank() }
+                    val imdbVal = state.mdbListRatings?.imdb ?: meta.imdbRating?.toDouble()
+                    val imdbPart = imdbVal?.takeIf { it > 0.0 }?.let { "IMDb ${String.format(java.util.Locale.US, "%.1f", it)}" }
+                    val rtPart = state.mdbListRatings?.tomatoes?.takeIf { it > 0 }?.let { "RT ${it}%" }
+                    listOfNotNull(genresPart, yearPart, runtimePart, imdbPart, rtPart).joinToString("  •  ")
+                }
+                if (compactMetaLine.isNotBlank()) {
+                    Text(
+                        text = compactMetaLine,
+                        color = Color.White.copy(alpha = 0.82f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }

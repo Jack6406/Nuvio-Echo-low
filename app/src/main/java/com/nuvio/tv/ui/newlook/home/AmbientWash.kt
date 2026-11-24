@@ -42,12 +42,12 @@ private const val WASH_KEEP_HEIGHT = 108
  * The wash's average brightness (HSV value) before the fade: dark artwork is lifted to it, so a night scene still
  * colours the page; bright artwork is brought down to it, so the rows stay readable. Lifted at most [WASH_MAX_LIFT].
  */
-private const val WASH_MEAN_VALUE = 0.22f
-private const val WASH_MAX_LIFT = 2.2f
+private const val WASH_MEAN_VALUE = 0.34f
+private const val WASH_MAX_LIFT = 2.6f
 /** The brightness at the top of the page and at the bottom, where the rows sit (fractions of the above). */
-private const val WASH_TOP_LIGHT = 0.80f
-private const val WASH_BOTTOM_LIGHT = 0.30f
-private const val WASH_SATURATION = 0.85f
+private const val WASH_TOP_LIGHT = 0.92f
+private const val WASH_BOTTOM_LIGHT = 0.48f
+private const val WASH_SATURATION = 1.15f
 private val WASH_MIDNIGHT_SLATE = Color(0xFF090B0F)
 private const val WASH_CROSSFADE_MS = 1_200
 

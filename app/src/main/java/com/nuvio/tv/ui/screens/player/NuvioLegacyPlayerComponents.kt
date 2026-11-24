@@ -94,7 +94,12 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 
 private const val PREFS_PLAYER_STYLE = "nuvio_legacy_player_style"
-private const val KEY_ACCENT_HEX = "player_accent_hex"
+private const val KEY_ACCENT_HEX = "player_accent_hex_v2"
+private var activePlaybackArtworkUrl by mutableStateOf<String?>(null)
+
+fun updateActivePlaybackArtwork(url: String?) {
+    if (activePlaybackArtworkUrl != url) activePlaybackArtworkUrl = url
+}
 
 data class PlayerAccentOption(
     val name: String,
@@ -171,7 +176,7 @@ fun rememberPlayerAccentColor(artworkUrl: String? = null): Color {
     }
 
     if (selectedHex.equals("DYNAMIC", ignoreCase = true)) {
-        return rememberDynamicArtworkAccent(artworkUrl)
+        return rememberDynamicArtworkAccent(artworkUrl ?: activePlaybackArtworkUrl)
     }
     val match = PLAYER_ACCENT_OPTIONS.firstOrNull { it.hex.equals(selectedHex, ignoreCase = true) }
     return if (match == null || match.hex == "THEME" || match.color == Color.Unspecified) {
