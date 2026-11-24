@@ -117,6 +117,8 @@ import kotlinx.coroutines.launch
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.foundation.layout.PaddingValues
 
 internal val NdText2 = Color(0xFFB3B3B3)
 internal val NdText3 = Color(0xFF808080)
@@ -314,6 +316,8 @@ internal fun NewDetailsContent(
     val ratings by extras.ratings.collectAsStateWithLifecycle()
     val mdbListUserRating by extras.mdbListUserRating.collectAsStateWithLifecycle()
     val mdbListRatingPending by extras.mdbListRatingPending.collectAsStateWithLifecycle()
+    val wikiquotes by extras.wikiquotes.collectAsStateWithLifecycle()
+    val productionFacts by extras.productionFacts.collectAsStateWithLifecycle()
     val titleReviews by extras.titleReviews.collectAsStateWithLifecycle()
     val episodeReviews by extras.episodeReviews.collectAsStateWithLifecycle()
     val titleRating = ratings.title(meta.id)
@@ -511,24 +515,33 @@ internal fun NewDetailsContent(
             pauseBackgroundTrailer = !playFocused,
             onBackgroundTrailerShowing = { trailerShowing = it }
         )
-        // A soft dark band behind the text column, so it reads over bright backdrops.
+        // Hero bottom-left gradient scrim + smooth scroll-down backdrop dim veil (matching Nuvio Legacy).
         val scrimAlpha by animateFloatAsState(
-            if (state.isTrailerPlaying || scrolledPast || immersive) 0f else 0.7f,
-            tween(if (scrolledPast) 300 else 800), label = "ndScrim"
+            if (state.isTrailerPlaying || scrolledPast || immersive) 0f else 0.85f,
+            tween(if (scrolledPast) 280 else 650), label = "ndScrim"
+        )
+        val scrollDimAlpha by animateFloatAsState(
+            if (scrolledPast && !state.isTrailerPlaying) 0.80f else 0f,
+            tween(340), label = "ndScrollDim"
         )
         Box(
             Modifier
                 .fillMaxSize()
                 .drawBehind {
-                    drawRect(
-                        Brush.horizontalGradient(
-                            0f to Color.Black.copy(alpha = 0.9f),
-                            0.30f to Color.Black.copy(alpha = 0.72f),
-                            0.50f to Color.Black.copy(alpha = 0.35f),
-                            0.66f to Color.Transparent
-                        ),
-                        alpha = scrimAlpha
-                    )
+                    if (scrimAlpha > 0f) {
+                        drawRect(
+                            Brush.verticalGradient(
+                                0f to Color.Transparent,
+                                0.42f to Color.Black.copy(alpha = 0.18f),
+                                0.76f to Color.Black.copy(alpha = 0.74f),
+                                1f to Color(0xFF090B0F).copy(alpha = 0.94f)
+                            ),
+                            alpha = scrimAlpha
+                        )
+                    }
+                    if (scrollDimAlpha > 0f) {
+                        drawRect(Color(0xFF10131A).copy(alpha = scrollDimAlpha))
+                    }
                 }
         )
 
@@ -616,6 +629,7 @@ internal fun NewDetailsContent(
                     }
                 )
             }
+            // 1. Ratings
             item(key = "nd_ratings_scorecard", contentType = "nd_ratings_scorecard") {
                 RowScroll(rowSpec) {
                     NdRatingsScorecardSection(
@@ -626,43 +640,90 @@ internal fun NewDetailsContent(
                     )
                 }
             }
-            if (state.moreLikeThis.isEmpty() && state.collection.isEmpty()) {
-                // Keep spacing clean
+            // 2. Cast (below Ratings)
+            val resolvedCast = remember(credits, meta.castMembers) {
+                val fromCredits = credits.cast
+                if (fromCredits.isNotEmpty()) fromCredits else meta.castMembers
             }
+            if (resolvedCast.isNotEmpty()) {
+                item(key = "nd_cast", contentType = "nd_cast") {
+                    RowScroll(rowSpec) {
+                        NdInlineCastRow(
+                            cast = resolvedCast,
+                            onActorClick = { member ->
+                                member.tmdbId?.let { id -> onNavigateToCastDetail(id, member.name, false) }
+                            }
+                        )
+                    }
+                }
+            }
+            // 3. Reviews from Trakt (below Cast)
+            item(key = "nd_reviews", contentType = "nd_reviews") {
+                RowScroll(rowSpec) {
+                    NdReviewsRow(
+                        subtitle = "reviews on Trakt",
+                        reviews = titleReviews,
+                        onOpen = { list, index -> reviewDirection = 0; openReview = list to index }
+                    )
+                }
+            }
+            // 4. Studios + Wikiquote Quotes & Production Facts (below Trakt Reviews)
+            val studiosList = remember(meta.productionCompanies, meta.networks) {
+                (meta.productionCompanies + meta.networks).distinctBy { it.name.lowercase() }.take(8)
+            }
+            if (studiosList.isNotEmpty()) {
+                item(key = "nd_studios", contentType = "nd_studios") {
+                    RowScroll(rowSpec) {
+                        NdStudiosRow(studios = studiosList)
+                    }
+                }
+            }
+            if (wikiquotes.isNotEmpty() || !productionFacts.isEmpty) {
+                item(key = "nd_quotes_facts", contentType = "nd_quotes_facts") {
+                    val accent = com.nuvio.tv.ui.screens.player.rememberDynamicArtworkAccent(meta.background ?: meta.poster)
+                    NdQuotesAndFactsSection(
+                        title = meta.name,
+                        quotes = wikiquotes,
+                        facts = productionFacts,
+                        accent = accent
+                    )
+                }
+            }
+            // 5. Movie / Series Details (below Quotes & Production Facts)
+            item(key = "nd_movie_details", contentType = "nd_movie_details") {
+                NdDetailsTableSection(
+                    meta = meta,
+                    isSeries = isSeries,
+                    facts = productionFacts
+                )
+            }
+            // 6. Recommendations with Vertical Portrait Posters (at the bottom)
             if (state.moreLikeThis.isNotEmpty()) {
                 item(key = "nd_similar", contentType = "nd_row") {
-                    RowScroll(rowSpec) { NdTitleRow(
-                        title = stringResource(R.string.nd_row_similar),
-                        items = state.moreLikeThis,
-                        footer = when (state.moreLikeThisSource) {
-                            MoreLikeThisSource.TMDB -> stringResource(R.string.detail_more_like_this_powered_by_tmdb)
-                            MoreLikeThisSource.TRAKT -> stringResource(R.string.detail_more_like_this_powered_by_trakt)
-                            MoreLikeThisSource.SIMKL -> stringResource(R.string.detail_more_like_this_powered_by_simkl)
-                            null -> null
-                        },
-                        onClick = { onNavigateToDetail(it.id, it.apiType, null) },
-                        onLongClick = onPosterLongPress
-                    ) }
+                    val accent = com.nuvio.tv.ui.screens.player.rememberDynamicArtworkAccent(meta.background ?: meta.poster)
+                    RowScroll(rowSpec) {
+                        NdPortraitRecommendationsRow(
+                            title = "Recommendations",
+                            items = state.moreLikeThis,
+                            accent = accent,
+                            onClick = { onNavigateToDetail(it.id, it.apiType, null) },
+                            onLongClick = onPosterLongPress
+                        )
+                    }
                 }
             }
             if (state.collection.isNotEmpty()) {
                 item(key = "nd_collection", contentType = "nd_row") {
-                    RowScroll(rowSpec) { NdTitleRow(
-                        title = state.collectionName ?: stringResource(R.string.tmdb_collections_title),
-                        items = state.collection,
-                        footer = null,
-                        onClick = { onNavigateToDetail(it.id, it.apiType, null) },
-                        onLongClick = onPosterLongPress
-                    ) }
-                }
-            }
-            item(key = "nd_reviews", contentType = "nd_reviews") {
-                RowScroll(rowSpec) {
-                    NdReviewsRow(
-                        subtitle = null,
-                        reviews = titleReviews,
-                        onOpen = { list, index -> reviewDirection = 0; openReview = list to index }
-                    )
+                    val accent = com.nuvio.tv.ui.screens.player.rememberDynamicArtworkAccent(meta.background ?: meta.poster)
+                    RowScroll(rowSpec) {
+                        NdPortraitRecommendationsRow(
+                            title = state.collectionName ?: stringResource(R.string.tmdb_collections_title),
+                            items = state.collection,
+                            accent = accent,
+                            onClick = { onNavigateToDetail(it.id, it.apiType, null) },
+                            onLongClick = onPosterLongPress
+                        )
+                    }
                 }
             }
         }
@@ -853,25 +914,29 @@ private fun NdHero(
         (heroAccent.red * 0.299f + heroAccent.green * 0.587f + heroAccent.blue * 0.114f) > 0.62f
     ) Color(0xFF0A0C10) else Color.White
 
+    val screenHeightDp = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
+    var optionsOpen by remember { mutableStateOf(false) }
+
     Box(
         modifier = Modifier
             .bringIntoViewResponder(noScroll)
             .fillMaxWidth()
-            .heightIn(min = 470.dp)
-            .padding(start = 52.dp, end = 52.dp, top = if (isSeries) 110.dp else 132.dp, bottom = 18.dp)
-            .onFocusChanged { if (it.hasFocus) onFocusedInHero() }
+            .height(screenHeightDp)
+            .padding(start = 52.dp, end = 52.dp, bottom = 36.dp)
+            .onFocusChanged { if (it.hasFocus) onFocusedInHero() },
+        contentAlignment = Alignment.BottomStart
     ) {
-        Column(modifier = Modifier.fillMaxWidth(0.56f)) {
+        Column(modifier = Modifier.fillMaxWidth(0.62f)) {
             if (!meta.logo.isNullOrBlank() && !logoFailed) {
                 AsyncImage(
                     model = remember(meta.logo) { ImageRequest.Builder(context).data(meta.logo).crossfade(true).build() },
                     contentDescription = meta.name,
                     onError = { logoFailed = true },
-                    modifier = Modifier.height(64.dp).fillMaxWidth(0.75f),
+                    modifier = Modifier.height(64.dp).fillMaxWidth(0.72f),
                     contentScale = ContentScale.Fit,
                     alignment = Alignment.CenterStart
                 )
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(14.dp))
             } else {
                 Text(
                     meta.name,
@@ -881,26 +946,26 @@ private fun NdHero(
                     fontWeight = FontWeight.Bold,
                     maxLines = 2
                 )
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(12.dp))
             }
 
-            // Sleek Nuvio-Legacy single horizontal action bar: Dynamic-Colored Play Pill + compact icon buttons
             var playBtnFocused by remember { mutableStateOf(false) }
             val playScale by animateFloatAsState(if (playBtnFocused) 1.05f else 1f, tween(140), label = "ndPlayScale")
             val holding = state.bins.filter { it.id in state.titleBinIds }
 
-            Column(Modifier.alpha(dim), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.alpha(dim), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    // 1. Dynamic-colored Play / Resume pill
                     Row(
                         modifier = Modifier
                             .graphicsLayer { scaleX = playScale; scaleY = playScale }
                             .onGloballyPositioned { onPlayBounds(it.boundsInRoot()) }
-                            .height(38.dp)
+                            .height(40.dp)
                             .clip(NdPill)
-                            .background(if (playBtnFocused) heroAccent else heroAccent.copy(alpha = 0.85f))
+                            .background(if (playBtnFocused) heroAccent else heroAccent.copy(alpha = 0.88f))
                             .border(
                                 width = if (playBtnFocused) 1.5.dp else 0.5.dp,
                                 color = if (playBtnFocused) Color.White else Color.White.copy(alpha = 0.25f),
@@ -916,7 +981,7 @@ private fun NdHero(
                                 onLongClick = onPlayHold,
                                 onClick = onPlay
                             )
-                            .padding(horizontal = 20.dp),
+                            .padding(horizontal = 22.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -938,61 +1003,122 @@ private fun NdHero(
                         }
                     }
 
+                    // 2. Episodes button right beside Play (for TV series)
                     if (isSeries) {
                         var epFocused by remember { mutableStateOf(false) }
-                        Box(
+                        Row(
                             modifier = Modifier
-                                .size(38.dp)
-                                .then(if (epFocused) Modifier.detailGlassLens(CircleShape) else Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.12f)))
+                                .height(40.dp)
+                                .then(if (epFocused) Modifier.detailGlassLens(NdPill) else Modifier.clip(NdPill).background(Color.White.copy(alpha = 0.14f)))
                                 .ndClickable(
                                     focusRequester = episodesItemFocus,
                                     onFocusChanged = { epFocused = it },
                                     onClick = onOpenEpisodes
-                                ),
-                            contentAlignment = Alignment.Center
+                                )
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(7.dp)
                         ) {
-                            Icon(Icons.Outlined.Tv, stringResource(R.string.nd_menu_episodes), tint = Color.White, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Outlined.Tv, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Text(
+                                text = stringResource(R.string.nd_menu_episodes),
+                                color = Color.White,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
                         }
                     }
 
-                    if (!state.trailerUrl.isNullOrBlank() || hasTrailersTab) {
-                        var trFocused by remember { mutableStateOf(false) }
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .then(if (trFocused) Modifier.detailGlassLens(CircleShape) else Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.12f)))
-                                .ndClickable(
-                                    onFocusChanged = { trFocused = it },
-                                    onClick = onTrailer
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Outlined.Movie, stringResource(R.string.nd_menu_trailer), tint = Color.White, modifier = Modifier.size(18.dp))
+                    // 3. Compact Options (...) circle button right beside Play/Episodes
+                    var optFocused by remember { mutableStateOf(false) }
+                    Row(
+                        modifier = Modifier
+                            .height(40.dp)
+                            .then(if (optFocused || optionsOpen) Modifier.detailGlassLens(NdPill) else Modifier.clip(NdPill).background(Color.White.copy(alpha = 0.14f)))
+                            .ndClickable(
+                                onFocusChanged = { optFocused = it },
+                                onClick = { optionsOpen = !optionsOpen }
+                            )
+                            .padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(Icons.Filled.MoreHoriz, "Options", tint = Color.White, modifier = Modifier.size(20.dp))
+                        if (optFocused || optionsOpen) {
+                            Text(
+                                text = "Options",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
                         }
                     }
+                }
 
-                    NdRatingRow(
-                        firstFocus = likeFocus,
-                        mdbListUserRating = mdbListUserRating,
-                        mdbListRatingPending = mdbListRatingPending,
-                        inBin = holding.isNotEmpty(),
-                        inBinLabel = when (holding.size) {
-                            0 -> null
-                            1 -> stringResource(R.string.nd_bin_in, holding.single().name)
-                            else -> stringResource(R.string.nd_bin_in_many, holding.size)
-                        },
-                        binFocus = binFocus,
-                        onBinBounds = onBinBounds,
-                        watched = watched,
-                        watchedPending = watchedPending,
-                        hasCustomBackdrop = hasCustomBackdrop,
-                        onRateMdbList = onRateMdbList,
-                        onRemoveMdbListRating = onRemoveMdbListRating,
-                        onToggleLibrary = onToggleLibrary,
-                        onLibraryLongPress = onLibraryLongPress,
-                        onToggleWatched = onToggleWatched,
-                        onOpenBackdrop = onOpenBackdrop
-                    )
+                // Expandable Options drawer (Rate on MDBList 0.5-step, Save to Bin, Watched, Trailer, Backdrop, Random Episode)
+                if (optionsOpen) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .detailGlassPanel(RoundedCornerShape(16.dp), strength = 1.5f)
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        NdRatingRow(
+                            firstFocus = likeFocus,
+                            mdbListUserRating = mdbListUserRating,
+                            mdbListRatingPending = mdbListRatingPending,
+                            inBin = holding.isNotEmpty(),
+                            inBinLabel = when (holding.size) {
+                                0 -> null
+                                1 -> stringResource(R.string.nd_bin_in, holding.single().name)
+                                else -> stringResource(R.string.nd_bin_in_many, holding.size)
+                            },
+                            binFocus = binFocus,
+                            onBinBounds = onBinBounds,
+                            watched = watched,
+                            watchedPending = watchedPending,
+                            hasCustomBackdrop = hasCustomBackdrop,
+                            onRateMdbList = onRateMdbList,
+                            onRemoveMdbListRating = onRemoveMdbListRating,
+                            onToggleLibrary = onToggleLibrary,
+                            onLibraryLongPress = onLibraryLongPress,
+                            onToggleWatched = onToggleWatched,
+                            onOpenBackdrop = onOpenBackdrop
+                        )
+                        if (!state.trailerUrl.isNullOrBlank() || hasTrailersTab) {
+                            var trFocused by remember { mutableStateOf(false) }
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .then(if (trFocused) Modifier.detailGlassLens(CircleShape) else Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.08f)))
+                                    .ndClickable(
+                                        onFocusChanged = { trFocused = it },
+                                        onClick = { optionsOpen = false; onTrailer() }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Outlined.Movie, stringResource(R.string.nd_menu_trailer), tint = Color.White, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                        if (isSeries && meta.videos.isNotEmpty()) {
+                            var randFocused by remember { mutableStateOf(false) }
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .then(if (randFocused) Modifier.detailGlassLens(CircleShape) else Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.08f)))
+                                    .ndClickable(
+                                        onFocusChanged = { randFocused = it },
+                                        onClick = { optionsOpen = false; onRandomEpisode() }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Outlined.Shuffle, stringResource(R.string.nd_menu_random), tint = Color.White, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
                 }
 
                 NdSynopsis(
@@ -1005,11 +1131,11 @@ private fun NdHero(
                     modifier = Modifier.zIndex(2f)
                 )
 
-                // Single sleek metadata strip (Genres · Year · Runtime · IMDb · RT) matching Nuvio Legacy
+                // Single sleek bottom metadata strip (Genres · Year · 2h 9m · IMDb · RT)
                 val compactMetaLine = remember(meta, state.tmdbRating, state.mdbListRatings) {
                     val genresPart = meta.genres.take(2).joinToString(" · ").takeIf { it.isNotBlank() }
                     val yearPart = meta.releaseInfo?.trim()?.take(4)?.takeIf { it.length == 4 }
-                    val runtimePart = meta.runtime?.trim()?.takeIf { it.isNotBlank() }
+                    val runtimePart = formatReadableRuntime(meta.runtime)
                     val imdbVal = state.mdbListRatings?.imdb ?: meta.imdbRating?.toDouble()
                     val imdbPart = imdbVal?.takeIf { it > 0.0 }?.let { "IMDb ${String.format(java.util.Locale.US, "%.1f", it)}" }
                     val rtPart = state.mdbListRatings?.tomatoes?.takeIf { it > 0.0 }?.let { "RT ${it.toInt()}%" }
@@ -1018,7 +1144,7 @@ private fun NdHero(
                 if (compactMetaLine.isNotBlank()) {
                     Text(
                         text = compactMetaLine,
-                        color = Color.White.copy(alpha = 0.82f),
+                        color = Color.White.copy(alpha = 0.86f),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
@@ -1656,4 +1782,388 @@ internal fun upcomingReminder(meta: Meta): com.nuvio.tv.data.local.ReleaseRemind
 internal fun shortReleaseDate(date: java.time.LocalDate): String {
     val pattern = if (date.year == java.time.LocalDate.now().year) "MMM d" else "MMM d, yyyy"
     return date.format(java.time.format.DateTimeFormatter.ofPattern(pattern, java.util.Locale.getDefault()))
+}
+
+
+private fun formatReadableRuntime(raw: String?): String? {
+    val clean = raw?.trim()?.takeIf { it.isNotBlank() } ?: return null
+    val pureMins = clean.removeSuffix("min").removeSuffix("m").trim().toIntOrNull()
+    if (pureMins != null && pureMins > 0) {
+        val h = pureMins / 60
+        val m = pureMins % 60
+        return when {
+            h > 0 && m > 0 -> "${h}h ${m}m"
+            h > 0 -> "${h}h"
+            else -> "${m}m"
+        }
+    }
+    return clean
+}
+
+@Composable
+private fun NdInlineCastRow(
+    cast: List<MetaCastMember>,
+    onActorClick: (MetaCastMember) -> Unit
+) {
+    val context = LocalContext.current
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 8.dp)) {
+        Text(
+            text = "Cast",
+            color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 52.dp, vertical = 8.dp)
+        )
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 52.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(cast.take(16).size, key = { idx -> "${cast[idx].name}_${cast[idx].character.orEmpty()}_$idx" }) { idx ->
+                val member = cast[idx]
+                var focused by remember { mutableStateOf(false) }
+                Column(
+                    modifier = Modifier
+                        .width(104.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (focused) Color.White.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.08f))
+                        .border(
+                            width = if (focused) 1.5.dp else 0.5.dp,
+                            color = if (focused) Color(0xFFCFDCE8) else Color.White.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(14.dp)
+                        )
+                        .ndClickable(
+                            onFocusChanged = { focused = it },
+                            onClick = { onActorClick(member) }
+                        )
+                        .padding(horizontal = 8.dp, vertical = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(58.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val photo = member.photo?.takeIf { it.isNotBlank() }
+                        if (photo != null) {
+                            AsyncImage(
+                                model = remember(context, photo) {
+                                    ImageRequest.Builder(context).data(photo).size(140, 140).crossfade(true).build()
+                                },
+                                contentDescription = member.name,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Text(
+                                text = member.name.split(" ").mapNotNull { it.firstOrNull()?.uppercaseChar() }.take(2).joinToString(""),
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Text(
+                        text = member.name,
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    member.character?.takeIf { it.isNotBlank() }?.let { role ->
+                        Text(
+                            text = role,
+                            color = Color.White.copy(alpha = 0.65f),
+                            fontSize = 10.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NdStudiosRow(studios: List<com.nuvio.tv.domain.model.MetaCompany>) {
+    val context = LocalContext.current
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 6.dp)) {
+        Text(
+            text = "Studios",
+            color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 52.dp, vertical = 8.dp)
+        )
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 52.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(studios.size, key = { idx -> "${studios[idx].name}_$idx" }) { idx ->
+                val company = studios[idx]
+                Box(
+                    modifier = Modifier
+                        .height(44.dp)
+                        .widthIn(min = 104.dp, max = 160.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.White.copy(alpha = 0.10f))
+                        .border(0.5.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val logoUrl = company.logo?.takeIf { it.isNotBlank() }
+                    if (logoUrl != null) {
+                        AsyncImage(
+                            model = remember(context, logoUrl) {
+                                ImageRequest.Builder(context).data(logoUrl).crossfade(true).build()
+                            },
+                            contentDescription = company.name,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Text(
+                            text = company.name,
+                            color = Color.White.copy(alpha = 0.9f),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NdQuotesAndFactsSection(
+    title: String,
+    quotes: List<WikiquoteEntry>,
+    facts: ProductionFacts,
+    accent: Color
+) {
+    val accentText = if (
+        (accent.red * 0.299f + accent.green * 0.587f + accent.blue * 0.114f) > 0.62f
+    ) Color(0xFF0A0C10) else Color.White
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 52.dp, vertical = 18.dp),
+        horizontalArrangement = Arrangement.spacedBy(32.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        if (quotes.isNotEmpty()) {
+            Column(modifier = Modifier.weight(1.25f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Quotes", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Wikiquote · \"$title\"",
+                    color = Color.White.copy(alpha = 0.58f),
+                    fontSize = 11.5.sp
+                )
+                quotes.forEach { entry ->
+                    var focused by remember { mutableStateOf(false) }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (focused) accent else Color.Transparent)
+                            .ndClickable(onFocusChanged = { focused = it }, onClick = {})
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "“${entry.quote}”",
+                            color = if (focused) accentText else Color.White.copy(alpha = 0.90f),
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp,
+                            maxLines = 4,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        entry.speaker?.takeIf { it.isNotBlank() }?.let { sp ->
+                            Text(
+                                text = "— $sp",
+                                color = if (focused) accentText.copy(alpha = 0.80f) else Color.White.copy(alpha = 0.58f),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                    Box(Modifier.fillMaxWidth().height(0.5.dp).background(Color.White.copy(alpha = 0.14f)))
+                }
+            }
+        }
+
+        if (!facts.isEmpty) {
+            Column(modifier = Modifier.weight(0.75f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Production facts", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Wikidata fields",
+                    color = Color.White.copy(alpha = 0.58f),
+                    fontSize = 11.5.sp
+                )
+                val rows = listOfNotNull(
+                    facts.budget?.let { "Budget" to it },
+                    facts.boxOffice?.let { "Box office" to it },
+                    facts.filmedIn?.let { "Filmed in" to it },
+                    facts.basedOn?.let { "Based on" to it }
+                )
+                rows.forEach { (k, v) ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Text(k, color = Color.White.copy(alpha = 0.58f), fontSize = 12.5.sp, modifier = Modifier.width(88.dp))
+                        Text(v, color = Color.White.copy(alpha = 0.92f), fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
+                    }
+                    Box(Modifier.fillMaxWidth().height(0.5.dp).background(Color.White.copy(alpha = 0.14f)))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NdDetailsTableSection(
+    meta: Meta,
+    isSeries: Boolean,
+    facts: ProductionFacts
+) {
+    val rows = remember(meta, facts) {
+        listOfNotNull(
+            (meta.released?.takeIf { it.isNotBlank() } ?: meta.releaseInfo?.takeIf { it.isNotBlank() })?.let { "Release" to it },
+            formatReadableRuntime(meta.runtime)?.let { "Runtime" to it },
+            meta.ageRating?.takeIf { it.isNotBlank() }?.let { "Rating" to it },
+            meta.country?.takeIf { it.isNotBlank() }?.let { "Country" to it },
+            meta.language?.takeIf { it.isNotBlank() }?.let { "Language" to it },
+            facts.budget?.let { "Budget" to it },
+            facts.boxOffice?.let { "Box office" to it },
+            facts.filmedIn?.let { "Filmed in" to it },
+            facts.basedOn?.let { "Based on" to it }
+        )
+    }
+    if (rows.isEmpty()) return
+    Column(
+        modifier = Modifier
+            .fillMaxWidth(0.58f)
+            .padding(horizontal = 52.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = if (isSeries) "Series details" else "Movie details",
+            color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(bottom = 6.dp)
+        )
+        rows.forEach { (label, value) ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                Text(label, color = Color.White.copy(alpha = 0.58f), fontSize = 13.sp, modifier = Modifier.width(100.dp))
+                Text(value, color = Color.White.copy(alpha = 0.92f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            }
+            Box(Modifier.fillMaxWidth().height(0.5.dp).background(Color.White.copy(alpha = 0.14f)))
+        }
+    }
+}
+
+@Composable
+private fun NdPortraitRecommendationsRow(
+    title: String,
+    items: List<MetaPreview>,
+    accent: Color,
+    onClick: (MetaPreview) -> Unit,
+    onLongClick: (MetaPreview) -> Unit
+) {
+    val context = LocalContext.current
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 36.dp)) {
+        Text(
+            text = title,
+            color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 52.dp, vertical = 10.dp)
+        )
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 52.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            items(items.size, key = { idx -> "${items[idx].id}_$idx" }) { idx ->
+                val item = items[idx]
+                var focused by remember { mutableStateOf(false) }
+                val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(140), label = "recScale")
+                Box(
+                    modifier = Modifier
+                        .graphicsLayer { scaleX = scale; scaleY = scale }
+                        .width(124.dp)
+                        .height(186.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF151820))
+                        .border(
+                            width = if (focused) 2.dp else 0.dp,
+                            color = if (focused) accent else Color.Transparent,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        .ndClickable(
+                            onFocusChanged = { focused = it },
+                            onLongClick = { onLongClick(item) },
+                            onClick = { onClick(item) }
+                        )
+                ) {
+                    val posterUrl = item.poster?.takeIf { it.isNotBlank() } ?: item.background
+                    if (posterUrl != null) {
+                        AsyncImage(
+                            model = remember(context, posterUrl) {
+                                ImageRequest.Builder(context).data(posterUrl).size(320, 480).crossfade(true).build()
+                            },
+                            contentDescription = item.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    0f to Color.Transparent,
+                                    0.55f to Color.Transparent,
+                                    1f to Color.Black.copy(alpha = 0.85f)
+                                )
+                            )
+                    )
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(horizontal = 8.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = item.name,
+                            color = Color.White,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        item.releaseInfo?.trim()?.take(4)?.takeIf { it.length == 4 }?.let { yr ->
+                            Text(
+                                text = yr,
+                                color = Color.White.copy(alpha = 0.72f),
+                                fontSize = 10.sp,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

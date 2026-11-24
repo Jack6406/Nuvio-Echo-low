@@ -56,6 +56,22 @@ data class BackdropPickerState(
     val items: List<BackdropCandidate> = emptyList()
 )
 
+@Immutable
+data class WikiquoteEntry(
+    val quote: String,
+    val speaker: String? = null
+)
+
+@Immutable
+data class ProductionFacts(
+    val budget: String? = null,
+    val boxOffice: String? = null,
+    val filmedIn: String? = null,
+    val basedOn: String? = null
+) {
+    val isEmpty: Boolean get() = budget == null && boxOffice == null && filmedIn == null && basedOn == null
+}
+
 /**
  * What the new details page adds to [MetaDetailsViewModel]: the thumbs (stored per profile in [TitleRatingsStore],
  * read by Home's personal rows and Smart Highlights), reviews ([TitleReviewsRepository]), and custom backdrops
@@ -102,6 +118,12 @@ class NewDetailsViewModel @Inject constructor(
     private val _mdbListRatingPending = MutableStateFlow(false)
     val mdbListRatingPending: StateFlow<Boolean> = _mdbListRatingPending.asStateFlow()
 
+    private val _wikiquotes = MutableStateFlow<List<WikiquoteEntry>>(emptyList())
+    val wikiquotes: StateFlow<List<WikiquoteEntry>> = _wikiquotes.asStateFlow()
+
+    private val _productionFacts = MutableStateFlow(ProductionFacts())
+    val productionFacts: StateFlow<ProductionFacts> = _productionFacts.asStateFlow()
+
     private val _episodeReviews = MutableStateFlow<Map<Pair<Int, Int>, ReviewsState>>(emptyMap())
     val episodeReviews: StateFlow<Map<Pair<Int, Int>, ReviewsState>> = _episodeReviews.asStateFlow()
 
@@ -131,6 +153,121 @@ class NewDetailsViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             _mdbListUserRating.value = runCatching { mdbListRepository.getUserRatingForMeta(meta) }.getOrNull()
         }
+        viewModelScope.launch(Dispatchers.IO) {
+            _wikiquotes.value = runCatching { fetchWikiquotes(meta.name) }.getOrDefault(emptyList())
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            _productionFacts.value = runCatching { fetchProductionFacts(meta) }.getOrDefault(ProductionFacts())
+        }
+    }
+
+    private fun fetchWikiquotes(title: String): List<WikiquoteEntry> {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isEmpty()) return emptyList()
+        val encoded = java.net.URLEncoder.encode(cleanTitle, "UTF-8")
+        val searchUrl = java.net.URL(
+            "https://en.wikiquote.org/w/api.php?action=query&list=search&srsearch=$encoded&srlimit=2&format=json"
+        )
+        val searchConn = (searchUrl.openConnection() as java.net.HttpURLConnection).apply {
+            setRequestProperty("User-Agent", "NuvioEchoTV/1.0")
+            connectTimeout = 4500
+            readTimeout = 4500
+        }
+        if (searchConn.responseCode !in 200..299) return emptyList()
+        val searchBody = searchConn.inputStream.bufferedReader().use { it.readText() }
+        val searchArr = org.json.JSONObject(searchBody)
+            .optJSONObject("query")
+            ?.optJSONArray("search")
+            ?: return emptyList()
+        val pageTitle = (0 until searchArr.length())
+            .mapNotNull { searchArr.optJSONObject(it)?.optString("title") }
+            .firstOrNull { it.equals(cleanTitle, ignoreCase = true) || it.startsWith("$cleanTitle (", ignoreCase = true) }
+            ?: searchArr.optJSONObject(0)?.optString("title")
+            ?: return emptyList()
+
+        val pageEncoded = java.net.URLEncoder.encode(pageTitle, "UTF-8")
+        val extractUrl = java.net.URL(
+            "https://en.wikiquote.org/w/api.php?action=query&prop=extracts&explaintext=1&exsectionformat=plain&titles=$pageEncoded&format=json"
+        )
+        val extractConn = (extractUrl.openConnection() as java.net.HttpURLConnection).apply {
+            setRequestProperty("User-Agent", "NuvioEchoTV/1.0")
+            connectTimeout = 4500
+            readTimeout = 4500
+        }
+        if (extractConn.responseCode !in 200..299) return emptyList()
+        val extractBody = extractConn.inputStream.bufferedReader().use { it.readText() }
+        val pages = org.json.JSONObject(extractBody).optJSONObject("query")?.optJSONObject("pages") ?: return emptyList()
+        val firstKey = pages.keys().takeIf { it.hasNext() }?.next() ?: return emptyList()
+        val text = pages.optJSONObject(firstKey)?.optString("extract").orEmpty()
+        if (text.isBlank()) return emptyList()
+
+        val results = mutableListOf<WikiquoteEntry>()
+        for (rawLine in text.lineSequence()) {
+            val line = rawLine.trim()
+            if (line.length !in 24..220) continue
+            if (line.startsWith("External links", true) || line.startsWith("See also", true) ||
+                line.startsWith("Cast", true) || line.startsWith("Taglines", true) ||
+                line.startsWith("About ", true) || line.contains("directed by", true)
+            ) continue
+            val colonIdx = line.indexOf(':')
+            if (colonIdx in 2..28 && !line.startsWith("http", true)) {
+                val speaker = line.substring(0, colonIdx).trim()
+                val quote = line.substring(colonIdx + 1).trim().trim('"')
+                if (quote.length >= 18 && speaker.count { it == ' ' } <= 3) {
+                    results.add(WikiquoteEntry(quote = quote, speaker = speaker))
+                }
+            }
+            if (results.size >= 5) break
+        }
+        return results
+    }
+
+    private fun fetchProductionFacts(meta: Meta): ProductionFacts {
+        val imdbId = Regex("(tt\\d{5,12})").find("${meta.id} ${meta.imdbId.orEmpty()}")?.groupValues?.get(1)
+            ?: return ProductionFacts()
+        val sparql = "SELECT ?budget ?boxOffice ?filmedInLabel ?basedOnLabel WHERE { " +
+            "?item wdt:P345 \"$imdbId\" . " +
+            "OPTIONAL { ?item wdt:P2130 ?budget . } " +
+            "OPTIONAL { ?item wdt:P2142 ?boxOffice . } " +
+            "OPTIONAL { ?item wdt:P915 ?filmedIn . } " +
+            "OPTIONAL { ?item wdt:P144 ?basedOn . } " +
+            "SERVICE wikibase:label { bd:serviceParam wikibase:language \"en\". } " +
+            "} LIMIT 1"
+        val encoded = java.net.URLEncoder.encode(sparql, "UTF-8")
+        val url = java.net.URL("https://query.wikidata.org/sparql?format=json&query=$encoded")
+        val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
+            setRequestProperty("User-Agent", "NuvioEchoTV/1.0")
+            setRequestProperty("Accept", "application/sparql-results+json")
+            connectTimeout = 4500
+            readTimeout = 4500
+        }
+        if (conn.responseCode !in 200..299) return ProductionFacts()
+        val body = conn.inputStream.bufferedReader().use { it.readText() }
+        val bindings = org.json.JSONObject(body)
+            .optJSONObject("results")
+            ?.optJSONArray("bindings")
+            ?: return ProductionFacts()
+        if (bindings.length() == 0) return ProductionFacts()
+        val row = bindings.optJSONObject(0) ?: return ProductionFacts()
+
+        fun formatMoney(raw: String?): String? {
+            val num = raw?.toDoubleOrNull() ?: return null
+            if (num <= 0.0) return null
+            return when {
+                num >= 1_000_000_000.0 -> String.format(java.util.Locale.US, "US$%.1fB", num / 1_000_000_000.0)
+                num >= 1_000_000.0 -> String.format(java.util.Locale.US, "US$%.0fM", num / 1_000_000.0)
+                num >= 1_000.0 -> String.format(java.util.Locale.US, "US$%.0fK", num / 1_000.0)
+                else -> String.format(java.util.Locale.US, "US$%.0f", num)
+            }
+        }
+        fun strVal(key: String): String? = row.optJSONObject(key)?.optString("value")?.takeIf { it.isNotBlank() }
+
+        return ProductionFacts(
+            budget = formatMoney(strVal("budget")),
+            boxOffice = formatMoney(strVal("boxOffice")),
+            filmedIn = strVal("filmedInLabel"),
+            basedOn = strVal("basedOnLabel")
+        )
     }
 
     fun setMdbListRating(meta: Meta, rating: Double) {
