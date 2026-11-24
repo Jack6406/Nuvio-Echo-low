@@ -2499,7 +2499,7 @@ private fun PlayerControlsOverlay(
         )
 
         var showAccentPicker by remember { mutableStateOf(false) }
-        val playerAccentColor = rememberPlayerAccentColor()
+        val playerAccentColor = rememberPlayerAccentColor(uiState.backdrop)
 
         // Apple TV+ Top-Left Cinematic Header: Movie/Series ClearLogo + Episode Subtitle + Frosted Format Pills
         NuvioLegacyTopLeftBadges(

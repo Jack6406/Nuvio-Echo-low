@@ -1447,6 +1447,10 @@ private fun NdPlayMenu(
                     }
                     .width(216.dp)
                     .height(if (compactMenu) 32.dp else 36.dp)
+                    .then(
+                        if (focused != 0) Modifier.clip(NdPill).background(Color(0xFFCFDCE8).copy(alpha = 0.22f))
+                        else Modifier
+                    )
                     // Up from Play goes to the first rating button, not whichever is nearest.
                     .focusProperties { up = upFocus }
                     .ndClickable(

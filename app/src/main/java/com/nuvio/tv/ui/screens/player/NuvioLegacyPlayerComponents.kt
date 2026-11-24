@@ -103,6 +103,7 @@ data class PlayerAccentOption(
 )
 
 val PLAYER_ACCENT_OPTIONS = listOf(
+    PlayerAccentOption("Auto (Dynamic)", "DYNAMIC", Color(0xFFCFDCE8)),
     PlayerAccentOption("Apple TV White", "#FFFFFF", Color(0xFFFFFFFF)),
     PlayerAccentOption("Cinema Gold", "#FFB300", Color(0xFFFFB300)),
     PlayerAccentOption("Crimson Red", "#E53935", Color(0xFFE53935)),
@@ -117,7 +118,38 @@ private val accentChangeListeners = mutableListOf<() -> Unit>()
 
 fun getSavedPlayerAccentHex(context: Context): String {
     val prefs = context.getSharedPreferences(PREFS_PLAYER_STYLE, Context.MODE_PRIVATE)
-    return prefs.getString(KEY_ACCENT_HEX, "#FFFFFF") ?: "#FFFFFF"
+    return prefs.getString(KEY_ACCENT_HEX, "DYNAMIC") ?: "DYNAMIC"
+}
+
+private val dynamicPlayerAccentCache = java.util.concurrent.ConcurrentHashMap<String, Color>()
+
+@Composable
+fun rememberDynamicArtworkAccent(artworkUrl: String?): Color {
+    val context = LocalContext.current
+    var resolved by remember(artworkUrl) {
+        mutableStateOf(artworkUrl?.let { dynamicPlayerAccentCache[it] } ?: Color(0xFFCFDCE8))
+    }
+    LaunchedEffect(artworkUrl) {
+        val url = artworkUrl?.trim()?.takeIf { it.isNotEmpty() } ?: return@LaunchedEffect
+        dynamicPlayerAccentCache[url]?.let {
+            resolved = it
+            return@LaunchedEffect
+        }
+        val palette = runCatching {
+            com.nuvio.tv.ui.newlook.home.sampleArtworkPalette(context, url)
+        }.getOrNull()
+        val rawInt = palette?.firstOrNull()
+        if (rawInt != null) {
+            val hsv = FloatArray(3)
+            android.graphics.Color.colorToHSV(rawInt, hsv)
+            hsv[1] = hsv[1].coerceIn(0.32f, 0.72f)
+            hsv[2] = hsv[2].coerceIn(0.72f, 0.94f)
+            val tuned = Color(android.graphics.Color.HSVToColor(hsv))
+            dynamicPlayerAccentCache[url] = tuned
+            resolved = tuned
+        }
+    }
+    return resolved
 }
 
 fun setSavedPlayerAccentHex(context: Context, hex: String) {
@@ -127,7 +159,7 @@ fun setSavedPlayerAccentHex(context: Context, hex: String) {
 }
 
 @Composable
-fun rememberPlayerAccentColor(): Color {
+fun rememberPlayerAccentColor(artworkUrl: String? = null): Color {
     val context = LocalContext.current
     val themeSecondary = com.nuvio.tv.ui.theme.NuvioTheme.extendedColors.focusRing
     var selectedHex by remember { mutableStateOf(getSavedPlayerAccentHex(context)) }
@@ -138,6 +170,9 @@ fun rememberPlayerAccentColor(): Color {
         onDispose { accentChangeListeners.remove(listener) }
     }
 
+    if (selectedHex.equals("DYNAMIC", ignoreCase = true)) {
+        return rememberDynamicArtworkAccent(artworkUrl)
+    }
     val match = PLAYER_ACCENT_OPTIONS.firstOrNull { it.hex.equals(selectedHex, ignoreCase = true) }
     return if (match == null || match.hex == "THEME" || match.color == Color.Unspecified) {
         themeSecondary

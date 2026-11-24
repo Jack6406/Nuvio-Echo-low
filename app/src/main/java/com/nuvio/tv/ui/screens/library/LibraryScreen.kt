@@ -272,34 +272,16 @@ fun LibraryScreen(
             .fillMaxSize()
             .onGloballyPositioned { rootOffset = it.positionInRoot() }
     ) {
-        Canvas(Modifier.fillMaxSize().underSidebar()) {
-            drawRect(
-                Brush.linearGradient(
-                    colors = listOf(Color(0xFF403A40), Color(0xFF29272D), Color(0xFF343137)),
-                    start = Offset.Zero,
-                    end = Offset(size.width, size.height)
-                )
-            )
-            val radius = size.maxDimension * 0.78f
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(Color(0x668F858E), Color(0x228F858E), Color.Transparent),
-                    center = Offset(size.width * 0.78f, size.height * 0.12f),
-                    radius = radius
-                ),
-                radius = radius,
-                center = Offset(size.width * 0.78f, size.height * 0.12f)
-            )
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(Color(0x444C5A61), Color(0x224C5A61), Color.Transparent),
-                    center = Offset(size.width * 0.18f, size.height * 0.88f),
-                    radius = radius * 0.82f
-                ),
-                radius = radius * 0.82f,
-                center = Offset(size.width * 0.18f, size.height * 0.88f)
-            )
+        val focusedLibraryUrl = remember(lastFocused, filteredClassicTitles) {
+            val focusedKey = lastFocused?.removePrefix("classic:")
+            val match = filteredClassicTitles.firstOrNull { it.entry.key == focusedKey }
+                ?: filteredClassicTitles.firstOrNull()
+            match?.let { binsViewModel.cachedBackdrop(it) ?: it.entry.background ?: it.entry.poster }
         }
+        com.nuvio.tv.ui.newlook.home.AmbientPageWash(
+            url = focusedLibraryUrl,
+            modifier = Modifier.fillMaxSize().underSidebar()
+        )
         Box(
             modifier = Modifier
                 .fillMaxSize()

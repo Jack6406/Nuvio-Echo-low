@@ -42,7 +42,8 @@ data class CalendarEpisode(
     val runtimeMinutes: Int?,
     /** A still of the episode, when the source has one. */
     val still: String?,
-    val type: String?
+    val type: String?,
+    val airTimeLabel: String? = null
 ) {
     val key: String get() = "S${season}E$episode"
 

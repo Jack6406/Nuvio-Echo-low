@@ -319,6 +319,14 @@ class CalendarRepository @Inject constructor(
         // A next episode whose day has passed has aired; TMDB moves it to last_episode_to_air within a day.
         val upcoming = next?.takeIf { it.airDate == null || !it.airDate.isBefore(today) }
         val aired = if (next != null && upcoming == null) next else last
+        // Drop shows that haven't aired anything in over 12 months and have no upcoming episode.
+        if (upcoming == null && aired?.airDate?.isBefore(today.minusMonths(12)) == true) {
+            return null
+        }
+        val tvMazeTime = resolveTvMazeAirTimeLabel(
+            imdbId = f.imdbId,
+            networkName = body.networks?.firstOrNull { !it.name.isNullOrBlank() }?.name
+        )
         return CalendarShow(
             id = f.id,
             title = body.name?.takeIf { it.isNotBlank() } ?: cached?.title ?: f.title,
@@ -327,7 +335,7 @@ class CalendarRepository @Inject constructor(
                 ?: body.backdropPath?.let { "$IMAGE_BASE/w780$it" }
                 ?: cached?.backdrop ?: f.background,
             status = CalendarStatus.from(body.status),
-            next = upcoming,
+            next = upcoming?.let { if (it.airTimeLabel == null && tvMazeTime != null) it.copy(airTimeLabel = tvMazeTime) else it },
             last = aired,
             network = body.networks?.firstOrNull { !it.name.isNullOrBlank() }?.name,
             seasons = body.numberOfSeasons,
@@ -343,6 +351,46 @@ class CalendarRepository @Inject constructor(
                 last = show.last?.let { if (it.runtimeMinutes == null) it.copy(runtimeMinutes = runtime) else it }
             )
         }
+    }
+
+    private fun resolveTvMazeAirTimeLabel(imdbId: String?, networkName: String?): String? {
+        val streamingNetworks = setOf(
+            "netflix", "prime video", "amazon", "disney+", "apple tv+", "apple tv",
+            "hulu", "max", "hbo max", "paramount+", "peacock", "crunchyroll"
+        )
+        val cleanNet = networkName?.trim()?.lowercase().orEmpty()
+        if (cleanNet in streamingNetworks) return "Streaming"
+        val cleanImdb = imdbId?.trim()?.takeIf { it.startsWith("tt", ignoreCase = true) } ?: return null
+        return runCatching {
+            val lookupUrl = java.net.URL("https://api.tvmaze.com/lookup/shows?imdb=$cleanImdb")
+            val conn = (lookupUrl.openConnection() as java.net.HttpURLConnection).apply {
+                connectTimeout = 4000
+                readTimeout = 4000
+            }
+            if (conn.responseCode !in 200..299) return null
+            val body = conn.inputStream.bufferedReader().use { it.readText() }
+            val root = org.json.JSONObject(body)
+            val webChannel = root.optJSONObject("webChannel")?.optString("name")?.takeIf { it.isNotBlank() }
+            val scheduleTime = root.optJSONObject("schedule")?.optString("time")?.takeIf { it.isNotBlank() }
+            val tzName = root.optJSONObject("network")?.optJSONObject("country")?.optString("timezone")
+                ?: root.optJSONObject("webChannel")?.optJSONObject("country")?.optString("timezone")
+            when {
+                webChannel != null && scheduleTime.isNullOrBlank() -> "Streaming"
+                !scheduleTime.isNullOrBlank() -> formatAirTimeInLocalZone(scheduleTime, tzName)
+                else -> null
+            }
+        }.getOrNull()
+    }
+
+    private fun formatAirTimeInLocalZone(hhmm: String, sourceTz: String?): String {
+        return runCatching {
+            val lt = java.time.LocalTime.parse(hhmm)
+            val srcZone = sourceTz?.takeIf { it.isNotBlank() }?.let { java.time.ZoneId.of(it) }
+                ?: java.time.ZoneId.of("America/New_York")
+            val zdt = java.time.ZonedDateTime.of(LocalDate.now(), lt, srcZone)
+                .withZoneSameInstant(java.time.ZoneId.systemDefault())
+            zdt.format(java.time.format.DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.getDefault()))
+        }.getOrElse { hhmm }
     }
 
     private fun TmdbScheduleEpisode.toEpisode(): CalendarEpisode? {

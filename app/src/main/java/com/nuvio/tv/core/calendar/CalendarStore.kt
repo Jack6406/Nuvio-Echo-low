@@ -123,6 +123,7 @@ internal class CalendarStore(context: Context) {
         runtimeMinutes?.let { put("runtime", it) }
         still?.let { put("still", it) }
         type?.let { put("type", it) }
+        airTimeLabel?.let { put("airTimeLabel", it) }
     }
 
     private fun JSONObject.toEpisode() = CalendarEpisode(
@@ -133,7 +134,8 @@ internal class CalendarStore(context: Context) {
         overview = str("overview"),
         runtimeMinutes = if (has("runtime")) optInt("runtime") else null,
         still = str("still"),
-        type = str("type")
+        type = str("type"),
+        airTimeLabel = str("airTimeLabel")
     )
 
     private fun JSONObject.str(name: String): String? = if (has(name) && !isNull(name)) optString(name).takeIf { it.isNotBlank() } else null

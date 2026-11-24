@@ -1260,7 +1260,7 @@ private fun rowSubtitle(entry: CalendarEntry, locale: Locale): String {
     val ep = entry.episode
     val code = ep?.let { stringResource(R.string.calendar_episode_code, it.season, it.episode) }
     return when {
-        entry.date != null -> listOfNotNull(dayLabel(entry.date, locale), code, entry.show.network).joinToString(" · ")
+        entry.date != null -> listOfNotNull(dayLabel(entry.date, locale), ep?.airTimeLabel, code, entry.show.network).joinToString(" · ")
         ep != null -> stringResource(
             R.string.calendar_last_episode,
             listOfNotNull(code, ep.airDate?.let { fullDate(it, locale) }).joinToString(" · ")

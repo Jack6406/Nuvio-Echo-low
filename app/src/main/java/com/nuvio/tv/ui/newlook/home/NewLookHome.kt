@@ -1004,12 +1004,21 @@ internal fun NewLookHomeContent(
     ) {
         val screenWidth = maxWidth
         if (settings.homeAmbientBackground) {
-            // The carousel's current title, blurred to its colours, behind the whole page (Appearance → Ambient colour).
-            val dynamicBackdrop = slides.getOrNull(slide)?.backdrop
+            // Dynamic wash adapts smoothly to the focused card's artwork (or current Hero slide),
+            // paused during active scroll so D-pad navigation stays fluid on 1 GB sticks.
+            val targetDynamicBackdrop = focusedItem?.heroPreview?.backdrop?.takeIf { it.isNotBlank() }
+                ?: focusedItem?.imageUrl?.takeIf { it.isNotBlank() }
+                ?: slides.getOrNull(slide)?.backdrop
+            var settledBackdrop by remember { mutableStateOf(targetDynamicBackdrop) }
+            LaunchedEffect(targetDynamicBackdrop, listState.isScrollInProgress) {
+                if (listState.isScrollInProgress) return@LaunchedEffect
+                kotlinx.coroutines.delay(180)
+                settledBackdrop = targetDynamicBackdrop
+            }
             val staticBackdrop = homeColorThemeSettings.savedThemes
                 .firstOrNull { it.id == homeColorThemeSettings.selectedStaticThemeId }
             if (homeColorThemeSettings.dynamic || staticBackdrop == null) {
-                AmbientPageWash(url = dynamicBackdrop, modifier = Modifier.fillMaxSize())
+                AmbientPageWash(url = settledBackdrop, modifier = Modifier.fillMaxSize())
             } else if (staticBackdrop.palette.size >= 3) {
                 StaticHomePaletteWash(staticBackdrop.palette, modifier = Modifier.fillMaxSize())
             } else {
@@ -1083,7 +1092,7 @@ internal fun NewLookHomeContent(
                                 onDownToHero = { focusHero(heroButton) }
                             )
                         },
-                        edgeToEdge = settings.heroEdgeToEdge
+                        edgeToEdge = true
                     )
                 }
                 itemsIndexed(rows, key = { _, row -> row.key }, contentType = { _, row -> row.kind }) { rowIndex, row ->
