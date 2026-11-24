@@ -302,21 +302,14 @@ internal fun QuickControlCenterDialog(
     ) {
         Column(
             modifier = Modifier
-                .padding(top = 56.dp, end = 36.dp)
-                .width(460.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Color(0xFF232733).copy(alpha = 0.96f),
-                            Color(0xFF12151C).copy(alpha = 0.98f)
-                        )
-                    )
-                )
-                .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(24.dp))
+                .padding(top = 52.dp, end = 36.dp)
+                .width(410.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color(0xFF121620).copy(alpha = 0.93f))
+                .border(0.8.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(20.dp))
                 .clickable(enabled = false, onClick = {})
-                .padding(22.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -513,57 +506,44 @@ private fun ControlCenterActionRow(
 ) {
     var focused by remember { mutableStateOf(false) }
     val bgColor by animateColorAsState(
-        targetValue = if (focused) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.07f),
+        targetValue = if (focused) Color(0xFFCFDCE8) else Color.Transparent,
         animationSpec = tween(140),
         label = "ccRowBg"
     )
-    val borderColor by animateColorAsState(
-        targetValue = if (focused) Color.White.copy(alpha = 0.78f) else Color.White.copy(alpha = 0.12f),
-        animationSpec = tween(140),
-        label = "ccRowBorder"
-    )
+    val fgColor = if (focused) Color(0xFF0A0C10) else Color.White
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(bgColor)
-            .border(1.dp, borderColor, RoundedCornerShape(16.dp))
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { focused = it.isFocused }
             .focusable()
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(11.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Color.White.copy(alpha = if (focused) 0.24f else 0.11f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = title,
-                tint = Color.White,
-                modifier = Modifier.size(19.dp)
-            )
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = title,
+            tint = fgColor,
+            modifier = Modifier.size(19.dp)
+        )
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                color = Color.White,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
+                color = fgColor,
+                fontSize = 13.5.sp,
+                fontWeight = if (focused) FontWeight.Bold else FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = subtitle,
-                color = Color.White.copy(alpha = 0.68f),
-                fontSize = 11.5.sp,
+                color = fgColor.copy(alpha = if (focused) 0.78f else 0.62f),
+                fontSize = 11.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -571,13 +551,13 @@ private fun ControlCenterActionRow(
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(999.dp))
-                .background(if (focused) Color.White else Color.White.copy(alpha = 0.14f))
-                .padding(horizontal = 11.dp, vertical = 5.dp)
+                .background(if (focused) Color(0xFF0A0C10).copy(alpha = 0.14f) else Color.White.copy(alpha = 0.12f))
+                .padding(horizontal = 10.dp, vertical = 4.dp)
         ) {
             Text(
                 text = badgeText,
-                color = if (focused) Color(0xFF101218) else Color.White,
-                fontSize = 11.5.sp,
+                color = fgColor,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold
             )
         }

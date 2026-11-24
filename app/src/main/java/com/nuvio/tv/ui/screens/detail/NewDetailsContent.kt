@@ -119,6 +119,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material.icons.outlined.Info
 
 internal val NdText2 = Color(0xFFB3B3B3)
 internal val NdText3 = Color(0xFF808080)
@@ -636,15 +637,22 @@ internal fun NewDetailsContent(
                     }
                 )
             }
-            // 1. Ratings
+            // 1. Ratings (focusable so pressing Down from the Hero lands cleanly on Ratings)
             item(key = "nd_ratings_scorecard", contentType = "nd_ratings_scorecard") {
+                var ratingsFocused by remember { mutableStateOf(false) }
                 RowScroll(rowSpec) {
-                    NdRatingsScorecardSection(
-                        meta = meta,
-                        isSeries = isSeries,
-                        tmdbRating = state.tmdbRating,
-                        mdbListRatings = state.mdbListRatings
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .ndClickable(onFocusChanged = { ratingsFocused = it }, onClick = {})
+                    ) {
+                        NdRatingsScorecardSection(
+                            meta = meta,
+                            isSeries = isSeries,
+                            tmdbRating = state.tmdbRating,
+                            mdbListRatings = state.mdbListRatings
+                        )
+                    }
                 }
             }
             // 2. Cast (below Ratings)
@@ -916,6 +924,31 @@ private fun NdHero(
 
     val screenHeightDp = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
     var optionsOpen by remember { mutableStateOf(false) }
+    var ratingPickerInMenu by remember { mutableStateOf(false) }
+    var fullSynopsisDialogOpen by remember { mutableStateOf(false) }
+    val optionsBtnFocus = remember { FocusRequester() }
+    val firstMenuFocus = remember { FocusRequester() }
+
+    BackHandler(enabled = fullSynopsisDialogOpen) {
+        fullSynopsisDialogOpen = false
+        runCatching { optionsBtnFocus.requestFocus() }
+    }
+    BackHandler(enabled = optionsOpen && !fullSynopsisDialogOpen) {
+        if (ratingPickerInMenu) {
+            ratingPickerInMenu = false
+        } else {
+            optionsOpen = false
+            runCatching { optionsBtnFocus.requestFocus() }
+        }
+    }
+
+    LaunchedEffect(optionsOpen) {
+        if (optionsOpen) {
+            ratingPickerInMenu = false
+            delay(50)
+            runCatching { firstMenuFocus.requestFocus() }
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -953,7 +986,7 @@ private fun NdHero(
             val playScale by animateFloatAsState(if (playBtnFocused) 1.05f else 1f, tween(140), label = "ndPlayScale")
             val holding = state.bins.filter { it.id in state.titleBinIds }
 
-            Column(Modifier.alpha(dim), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1030,106 +1063,46 @@ private fun NdHero(
                         }
                     }
 
-                    // 3. Compact Options (...) circle button right beside Play/Episodes
+                    // 3. Compact Nuvio-Legacy (...) circle button right beside Play/Episodes
                     var optFocused by remember { mutableStateOf(false) }
-                    Row(
+                    Box(
                         modifier = Modifier
-                            .height(40.dp)
-                            .then(if (optFocused || optionsOpen) Modifier.detailGlassLens(NdPill) else Modifier.clip(NdPill).background(Color.White.copy(alpha = 0.14f)))
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(if (optFocused || optionsOpen) heroAccent else Color.White.copy(alpha = 0.16f))
+                            .border(
+                                width = if (optFocused || optionsOpen) 1.5.dp else 0.75.dp,
+                                color = if (optFocused || optionsOpen) Color.White else Color.White.copy(alpha = 0.28f),
+                                shape = CircleShape
+                            )
                             .ndClickable(
+                                focusRequester = optionsBtnFocus,
                                 onFocusChanged = { optFocused = it },
                                 onClick = { optionsOpen = !optionsOpen }
-                            )
-                            .padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Filled.MoreHoriz, "Options", tint = Color.White, modifier = Modifier.size(20.dp))
-                        if (optFocused || optionsOpen) {
-                            Text(
-                                text = "Options",
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                }
-
-                // Expandable Options drawer (Rate on MDBList 0.5-step, Save to Bin, Watched, Trailer, Backdrop, Random Episode)
-                if (optionsOpen) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier
-                            .detailGlassPanel(RoundedCornerShape(16.dp), strength = 1.5f)
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        NdRatingRow(
-                            firstFocus = likeFocus,
-                            mdbListUserRating = mdbListUserRating,
-                            mdbListRatingPending = mdbListRatingPending,
-                            inBin = holding.isNotEmpty(),
-                            inBinLabel = when (holding.size) {
-                                0 -> null
-                                1 -> stringResource(R.string.nd_bin_in, holding.single().name)
-                                else -> stringResource(R.string.nd_bin_in_many, holding.size)
-                            },
-                            binFocus = binFocus,
-                            onBinBounds = onBinBounds,
-                            watched = watched,
-                            watchedPending = watchedPending,
-                            hasCustomBackdrop = hasCustomBackdrop,
-                            onRateMdbList = onRateMdbList,
-                            onRemoveMdbListRating = onRemoveMdbListRating,
-                            onToggleLibrary = onToggleLibrary,
-                            onLibraryLongPress = onLibraryLongPress,
-                            onToggleWatched = onToggleWatched,
-                            onOpenBackdrop = onOpenBackdrop
+                        Icon(
+                            Icons.Filled.MoreHoriz,
+                            contentDescription = "Options",
+                            tint = if (optFocused || optionsOpen) heroAccentContent else Color.White,
+                            modifier = Modifier.size(20.dp)
                         )
-                        if (!state.trailerUrl.isNullOrBlank() || hasTrailersTab) {
-                            var trFocused by remember { mutableStateOf(false) }
-                            Box(
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .then(if (trFocused) Modifier.detailGlassLens(CircleShape) else Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.08f)))
-                                    .ndClickable(
-                                        onFocusChanged = { trFocused = it },
-                                        onClick = { optionsOpen = false; onTrailer() }
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Outlined.Movie, stringResource(R.string.nd_menu_trailer), tint = Color.White, modifier = Modifier.size(18.dp))
-                            }
-                        }
-                        if (isSeries && meta.videos.isNotEmpty()) {
-                            var randFocused by remember { mutableStateOf(false) }
-                            Box(
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .then(if (randFocused) Modifier.detailGlassLens(CircleShape) else Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.08f)))
-                                    .ndClickable(
-                                        onFocusChanged = { randFocused = it },
-                                        onClick = { optionsOpen = false; onRandomEpisode() }
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Outlined.Shuffle, stringResource(R.string.nd_menu_random), tint = Color.White, modifier = Modifier.size(18.dp))
-                            }
-                        }
                     }
                 }
 
-                NdSynopsis(
-                    meta = meta,
-                    isSeries = isSeries,
-                    castOnly = castOnly,
-                    crew = crew,
-                    open = synopsisOpen,
-                    onOpenChange = { synopsisOpen = it },
-                    modifier = Modifier.zIndex(2f)
-                )
+                // Clean non-focusable 3-line synopsis (prevents accidental focus-dim bug on Down press)
+                val desc = meta.description?.trim().orEmpty()
+                if (desc.isNotBlank()) {
+                    Text(
+                        text = desc,
+                        color = Color.White.copy(alpha = 0.88f),
+                        fontSize = 13.5.sp,
+                        lineHeight = 19.sp,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
 
                 // Single sleek bottom metadata strip (Genres · Year · 2h 9m · IMDb · RT)
                 val compactMetaLine = remember(meta, state.tmdbRating, state.mdbListRatings) {
@@ -1150,6 +1123,208 @@ private fun NdHero(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                }
+            }
+        }
+
+        // Floating Nuvio-Legacy Options Popup anchored ABOVE the (...) button (does not push synopsis down)
+        if (optionsOpen) {
+            val holding = state.bins.filter { it.id in state.titleBinIds }
+            val binText = when (holding.size) {
+                0 -> "Save to bin"
+                1 -> "Saved in ${holding.single().name}"
+                else -> "Saved in ${holding.size} bins"
+            }
+            val ratingText = mdbListUserRating?.let { "MDBList ★ ${formatMdbScore(it)}/10" } ?: "Rate on MDBList"
+            val menuStartPad = if (isSeries) 240.dp else 135.dp
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = menuStartPad, bottom = 148.dp)
+                    .width(if (ratingPickerInMenu) 360.dp else 255.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF141822).copy(alpha = 0.94f))
+                    .border(0.8.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(16.dp))
+                    .focusGroup()
+                    .padding(8.dp)
+                    .zIndex(10f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                NdLegacyPopupRow(
+                    icon = Icons.Outlined.StarBorder,
+                    label = ratingText,
+                    accent = heroAccent,
+                    accentText = heroAccentContent,
+                    focusRequester = firstMenuFocus,
+                    onClick = { ratingPickerInMenu = !ratingPickerInMenu }
+                )
+                if (ratingPickerInMenu) {
+                    val halfStepScores = remember { (2..20).map { it / 2.0 } }
+                    val targetScore = mdbListUserRating ?: 8.0
+                    val targetIndex = remember(targetScore) {
+                        halfStepScores.indexOfFirst { kotlin.math.abs(it - targetScore) < 0.05 }.coerceAtLeast(0)
+                    }
+                    val scoreListState = rememberLazyListState(initialFirstVisibleItemIndex = (targetIndex - 2).coerceAtLeast(0))
+                    LazyRow(
+                        state = scoreListState,
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)
+                    ) {
+                        items(halfStepScores.size, key = { idx -> halfStepScores[idx] }) { idx ->
+                            val score = halfStepScores[idx]
+                            var sFocused by remember { mutableStateOf(false) }
+                            val isSelected = mdbListUserRating != null && kotlin.math.abs(mdbListUserRating - score) < 0.05
+                            Box(
+                                modifier = Modifier
+                                    .height(26.dp)
+                                    .widthIn(min = if (score % 1.0 == 0.0) 26.dp else 32.dp)
+                                    .clip(RoundedCornerShape(13.dp))
+                                    .background(
+                                        when {
+                                            sFocused -> heroAccent
+                                            isSelected -> heroAccent.copy(alpha = 0.30f)
+                                            else -> Color.White.copy(alpha = 0.08f)
+                                        }
+                                    )
+                                    .ndClickable(
+                                        onFocusChanged = { sFocused = it },
+                                        onClick = {
+                                            onRateMdbList(score)
+                                            ratingPickerInMenu = false
+                                            optionsOpen = false
+                                            runCatching { optionsBtnFocus.requestFocus() }
+                                        }
+                                    )
+                                    .padding(horizontal = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = formatMdbScore(score),
+                                    color = if (sFocused) heroAccentContent else Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        if (mdbListUserRating != null) {
+                            item(key = "clear_popup_rating") {
+                                var cFocused by remember { mutableStateOf(false) }
+                                Box(
+                                    modifier = Modifier
+                                        .height(26.dp)
+                                        .clip(RoundedCornerShape(13.dp))
+                                        .background(if (cFocused) Color.White else Color.White.copy(alpha = 0.14f))
+                                        .ndClickable(
+                                            onFocusChanged = { cFocused = it },
+                                            onClick = {
+                                                onRemoveMdbListRating()
+                                                ratingPickerInMenu = false
+                                                optionsOpen = false
+                                                runCatching { optionsBtnFocus.requestFocus() }
+                                            }
+                                        )
+                                        .padding(horizontal = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("Clear", color = if (cFocused) Color.Black else Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
+                }
+                NdLegacyPopupRow(
+                    icon = if (holding.isNotEmpty()) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                    label = binText,
+                    accent = heroAccent,
+                    accentText = heroAccentContent,
+                    onClick = {
+                        onToggleLibrary()
+                        optionsOpen = false
+                        runCatching { optionsBtnFocus.requestFocus() }
+                    },
+                    onLongClick = {
+                        optionsOpen = false
+                        onLibraryLongPress()
+                    }
+                )
+                NdLegacyPopupRow(
+                    icon = if (watched) Icons.Filled.Visibility else Icons.Outlined.Visibility,
+                    label = if (watched) "Watched" else "Mark as watched",
+                    accent = heroAccent,
+                    accentText = heroAccentContent,
+                    onClick = {
+                        if (!watchedPending) {
+                            onToggleWatched()
+                            optionsOpen = false
+                            runCatching { optionsBtnFocus.requestFocus() }
+                        }
+                    }
+                )
+                if (!state.trailerUrl.isNullOrBlank() || hasTrailersTab) {
+                    NdLegacyPopupRow(
+                        icon = Icons.Outlined.Movie,
+                        label = "Watch trailer",
+                        accent = heroAccent,
+                        accentText = heroAccentContent,
+                        onClick = {
+                            optionsOpen = false
+                            onTrailer()
+                        }
+                    )
+                }
+                NdLegacyPopupRow(
+                    icon = Icons.Outlined.Image,
+                    label = "Change artwork",
+                    accent = heroAccent,
+                    accentText = heroAccentContent,
+                    onClick = {
+                        optionsOpen = false
+                        onOpenBackdrop()
+                    }
+                )
+                if (isSeries && meta.videos.isNotEmpty()) {
+                    NdLegacyPopupRow(
+                        icon = Icons.Outlined.Shuffle,
+                        label = "Random episode",
+                        accent = heroAccent,
+                        accentText = heroAccentContent,
+                        onClick = {
+                            optionsOpen = false
+                            onRandomEpisode()
+                        }
+                    )
+                }
+                if (!meta.description.isNullOrBlank()) {
+                    NdLegacyPopupRow(
+                        icon = Icons.Outlined.Info,
+                        label = "Read synopsis",
+                        accent = heroAccent,
+                        accentText = heroAccentContent,
+                        onClick = {
+                            optionsOpen = false
+                            fullSynopsisDialogOpen = true
+                        }
+                    )
+                }
+            }
+        }
+
+        if (fullSynopsisDialogOpen && !meta.description.isNullOrBlank()) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth(0.72f)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color(0xFF121620).copy(alpha = 0.96f))
+                    .border(0.8.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(18.dp))
+                    .padding(24.dp)
+                    .zIndex(12f)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(meta.name, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(meta.description.orEmpty(), color = Color.White.copy(alpha = 0.90f), fontSize = 14.sp, lineHeight = 21.sp)
+                    Text("Press Back to close", color = Color.White.copy(alpha = 0.55f), fontSize = 11.5.sp)
                 }
             }
         }
@@ -2029,6 +2204,83 @@ private fun NdQuotesAndFactsSection(
     }
 }
 
+private fun formatReadableReleaseDate(raw: String?): String? {
+    val clean = raw?.trim()?.takeIf { it.isNotBlank() } ?: return null
+    val isoPrefix = clean.substringBefore('T').trim()
+    val parsed = runCatching { java.time.LocalDate.parse(isoPrefix) }.getOrNull()
+    if (parsed != null) {
+        return parsed.format(java.time.format.DateTimeFormatter.ofPattern("d MMMM yyyy", java.util.Locale.ENGLISH))
+    }
+    return isoPrefix
+}
+
+private fun formatFullLanguageNames(raw: String?): String? {
+    val clean = raw?.trim()?.takeIf { it.isNotBlank() } ?: return null
+    return clean.split(",").mapNotNull { token ->
+        val code = token.trim()
+        if (code.isEmpty()) return@mapNotNull null
+        if (code.length <= 3) {
+            val full = java.util.Locale.forLanguageTag(code).getDisplayLanguage(java.util.Locale.ENGLISH)
+            if (full.isNotBlank() && !full.equals(code, ignoreCase = true)) full else code.uppercase(java.util.Locale.ENGLISH)
+        } else {
+            code.replaceFirstChar { it.titlecase(java.util.Locale.ENGLISH) }
+        }
+    }.distinct().joinToString(", ").takeIf { it.isNotBlank() }
+}
+
+private fun formatFullCountryNames(raw: String?): String? {
+    val clean = raw?.trim()?.takeIf { it.isNotBlank() } ?: return null
+    return clean.split(",").mapNotNull { token ->
+        val code = token.trim()
+        if (code.isEmpty()) return@mapNotNull null
+        if (code.length == 2) {
+            val full = java.util.Locale("", code.uppercase(java.util.Locale.ENGLISH)).getDisplayCountry(java.util.Locale.ENGLISH)
+            if (full.isNotBlank()) full else code.uppercase(java.util.Locale.ENGLISH)
+        } else {
+            code
+        }
+    }.distinct().joinToString(", ").takeIf { it.isNotBlank() }
+}
+
+@Composable
+private fun NdLegacyPopupRow(
+    icon: ImageVector,
+    label: String,
+    accent: Color,
+    accentText: Color,
+    focusRequester: FocusRequester? = null,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
+) {
+    var focused by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(36.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (focused) accent else Color.Transparent)
+            .ndClickable(
+                focusRequester = focusRequester,
+                onFocusChanged = { focused = it },
+                onLongClick = onLongClick,
+                onClick = onClick
+            )
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Icon(icon, null, tint = if (focused) accentText else Color.White.copy(alpha = 0.85f), modifier = Modifier.size(17.dp))
+        Text(
+            text = label,
+            color = if (focused) accentText else Color.White.copy(alpha = 0.92f),
+            fontSize = 13.sp,
+            fontWeight = if (focused) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
 @Composable
 private fun NdDetailsTableSection(
     meta: Meta,
@@ -2037,11 +2289,11 @@ private fun NdDetailsTableSection(
 ) {
     val rows = remember(meta, facts) {
         listOfNotNull(
-            (meta.released?.takeIf { it.isNotBlank() } ?: meta.releaseInfo?.takeIf { it.isNotBlank() })?.let { "Release" to it },
+            formatReadableReleaseDate(meta.released?.takeIf { it.isNotBlank() } ?: meta.releaseInfo)?.let { "Release" to it },
             formatReadableRuntime(meta.runtime)?.let { "Runtime" to it },
             meta.ageRating?.takeIf { it.isNotBlank() }?.let { "Rating" to it },
-            meta.country?.takeIf { it.isNotBlank() }?.let { "Country" to it },
-            meta.language?.takeIf { it.isNotBlank() }?.let { "Language" to it },
+            formatFullCountryNames(meta.country)?.let { "Country" to it },
+            formatFullLanguageNames(meta.language)?.let { "Language" to it },
             facts.budget?.let { "Budget" to it },
             facts.boxOffice?.let { "Box office" to it },
             facts.filmedIn?.let { "Filmed in" to it },
@@ -2049,10 +2301,15 @@ private fun NdDetailsTableSection(
         )
     }
     if (rows.isEmpty()) return
+    var sectionFocused by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth(0.58f)
-            .padding(horizontal = 52.dp, vertical = 18.dp),
+            .padding(horizontal = 52.dp, vertical = 18.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (sectionFocused) Color.White.copy(alpha = 0.05f) else Color.Transparent)
+            .ndClickable(onFocusChanged = { sectionFocused = it }, onClick = {})
+            .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(
