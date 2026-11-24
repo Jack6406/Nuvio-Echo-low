@@ -561,6 +561,13 @@ internal fun NewDetailsContent(
         androidx.compose.runtime.CompositionLocalProvider(
             androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides pageSpec
         ) {
+        val resolvedCast = remember(credits, meta.castMembers) {
+            val fromCredits = credits.cast
+            if (fromCredits.isNotEmpty()) fromCredits else meta.castMembers
+        }
+        val studiosList = remember(meta.productionCompanies, meta.networks) {
+            (meta.productionCompanies + meta.networks).distinctBy { it.name.lowercase() }.take(8)
+        }
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -641,10 +648,6 @@ internal fun NewDetailsContent(
                 }
             }
             // 2. Cast (below Ratings)
-            val resolvedCast = remember(credits, meta.castMembers) {
-                val fromCredits = credits.cast
-                if (fromCredits.isNotEmpty()) fromCredits else meta.castMembers
-            }
             if (resolvedCast.isNotEmpty()) {
                 item(key = "nd_cast", contentType = "nd_cast") {
                     RowScroll(rowSpec) {
@@ -668,9 +671,6 @@ internal fun NewDetailsContent(
                 }
             }
             // 4. Studios + Wikiquote Quotes & Production Facts (below Trakt Reviews)
-            val studiosList = remember(meta.productionCompanies, meta.networks) {
-                (meta.productionCompanies + meta.networks).distinctBy { it.name.lowercase() }.take(8)
-            }
             if (studiosList.isNotEmpty()) {
                 item(key = "nd_studios", contentType = "nd_studios") {
                     RowScroll(rowSpec) {
