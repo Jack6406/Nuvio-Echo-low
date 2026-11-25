@@ -163,10 +163,20 @@ class ModernCarouselRowBuildCache {
     var upcomingUseLandscapePosters: Boolean = false
     var upcomingShowImdbRatings: Boolean = true
     var upcomingRow: HeroCarouselRow? = null
-    internal val catalogRows = java.util.concurrent.ConcurrentHashMap<String, ModernCatalogRowBuildCacheEntry>()
-    internal val collectionRows = java.util.concurrent.ConcurrentHashMap<String, ModernCollectionRowBuildCacheEntry>()
+    private fun <K, V> boundedRowMap(lowRamCap: Int, defaultCap: Int): MutableMap<K, V> {
+        val lru = object : LinkedHashMap<K, V>(32, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>?): Boolean {
+                val limit = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) lowRamCap else defaultCap
+                return size > limit
+            }
+        }
+        return java.util.Collections.synchronizedMap(lru)
+    }
+
+    internal val catalogRows = boundedRowMap<String, ModernCatalogRowBuildCacheEntry>(lowRamCap = 32, defaultCap = 96)
+    internal val collectionRows = boundedRowMap<String, ModernCollectionRowBuildCacheEntry>(lowRamCap = 24, defaultCap = 64)
     // per-item cache: rowKey -> (itemId -> cached carousel item + source MetaPreview)
-    internal val catalogItemCache = java.util.concurrent.ConcurrentHashMap<String, MutableMap<String, CachedCarouselItem>>()
+    internal val catalogItemCache = boundedRowMap<String, MutableMap<String, CachedCarouselItem>>(lowRamCap = 32, defaultCap = 96)
 }
 
 internal data class CachedCarouselItem(

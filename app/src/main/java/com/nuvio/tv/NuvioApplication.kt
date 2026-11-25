@@ -57,10 +57,13 @@ private class FireStick1080pImageCapInterceptor(
         var builder: coil3.request.ImageRequest.Builder? = null
 
         if (rawData is String && rawData.contains("image.tmdb.org/t/p/")) {
+            val isLogoAsset = rawData.endsWith(".png", ignoreCase = true) || rawData.endsWith(".svg", ignoreCase = true)
             val optimizedUrl = when {
                 rawData.contains("/t/p/original/") ->
                     rawData.replace("/t/p/original/", if (isLowRamDevice) "/t/p/w1280/" else "/t/p/w1920_and_h1080_multi_faces/")
-                isLowRamDevice && rawData.contains("/t/p/w780/") ->
+                !isLogoAsset && rawData.contains("/t/p/w500/") ->
+                    rawData.replace("/t/p/w500/", "/t/p/w342/")
+                isLowRamDevice && !isLogoAsset && rawData.contains("/t/p/w780/") ->
                     rawData.replace("/t/p/w780/", "/t/p/w500/")
                 else -> rawData
             }
@@ -73,7 +76,7 @@ private class FireStick1080pImageCapInterceptor(
             val urlStr = rawData as? String ?: ""
             val isPoster = urlStr.contains("/poster/") || urlStr.contains("/w500/") || urlStr.contains("/w342/") || urlStr.contains("/w780/")
             val cappedSize = if (isPoster) {
-                Size(Dimension(360), Dimension(540))
+                Size(Dimension(342), Dimension(513))
             } else if (isLowRamDevice) {
                 Size(Dimension(1280), Dimension(720))
             } else {
@@ -96,6 +99,7 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var imagePerformancePreferences: ImagePerformancePreferences
     @Inject lateinit var customBackdropStore: com.nuvio.tv.data.local.CustomBackdropStore
     @Inject lateinit var tmdbMetadataService: dagger.Lazy<com.nuvio.tv.core.tmdb.TmdbMetadataService>
+    @Inject lateinit var browseRepository: dagger.Lazy<com.nuvio.tv.core.browse.BrowseRepository>
     @Inject lateinit var trailerPlayerPool: dagger.Lazy<com.nuvio.tv.core.player.TrailerPlayerPool>
     @Inject lateinit var simklAnimeIdPreferenceHolder: SimklAnimeIdPreferenceHolder
     @Inject lateinit var streamPrefetcher: dagger.Lazy<com.nuvio.tv.core.streams.StreamPrefetcher>
@@ -140,6 +144,7 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
             val app = appInstance
             if (app != null) {
                 runCatching { app.tmdbMetadataService.get().trimMemoryCaches() }
+                runCatching { app.browseRepository.get().trimMemoryCache() }
                 runCatching { app.trailerPlayerPool.get().yield() }
             }
         }
@@ -261,14 +266,20 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
                     totalRamMb <= 3072 -> 0.20
                     else -> 0.25
                 }
-                MemoryCache.Builder()
-                    .maxSizePercent(context, cachePercent)
-                    .build()
+                val memoryCacheBuilder = MemoryCache.Builder()
+                if (is1GbMode || totalRamMb <= 1400) {
+                    val maxHeapBytes = Runtime.getRuntime().maxMemory()
+                    val targetBytes = (maxHeapBytes * cachePercent).toLong()
+                        .coerceIn(8L * 1024 * 1024, 18L * 1024 * 1024)
+                    memoryCacheBuilder.maxSizeBytes(targetBytes).build()
+                } else {
+                    memoryCacheBuilder.maxSizePercent(context, cachePercent).build()
+                }
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache").toOkioPath())
-                    .maxSizeBytes(if (is1GbMode) 80L * 1024 * 1024 else 200L * 1024 * 1024)
+                    .maxSizeBytes(if (is1GbMode) 64L * 1024 * 1024 else 200L * 1024 * 1024)
                     .build()
             }
             .crossfade(false)
@@ -288,6 +299,7 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
         }
         if (level >= TRIM_MEMORY_RUNNING_CRITICAL || level >= TRIM_MEMORY_BACKGROUND) {
             runCatching { tmdbMetadataService.get().trimMemoryCaches() }
+            runCatching { browseRepository.get().trimMemoryCache() }
             runCatching { trailerPlayerPool.get().yield() }
         }
     }
@@ -298,6 +310,7 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
         com.nuvio.tv.ui.newlook.home.clearAmbientWashCache()
         com.nuvio.tv.ui.newlook.home.clearAmbientTintCache()
         runCatching { tmdbMetadataService.get().trimMemoryCaches() }
+        runCatching { browseRepository.get().trimMemoryCache() }
         runCatching { trailerPlayerPool.get().yield() }
     }
 }

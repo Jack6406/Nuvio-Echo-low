@@ -91,7 +91,7 @@ class TmdbCollectionSourceResolver @Inject constructor(
             ?: error(string(R.string.tmdb_error_collection_not_found))
         TmdbSourceImportMetadata(
             title = body.name?.takeIf { it.isNotBlank() },
-            coverImageUrl = imageUrl(body.posterPath, "w500") ?: imageUrl(body.backdropPath, "w1280")
+            coverImageUrl = imageUrl(body.posterPath, "w342") ?: imageUrl(body.backdropPath, "w1280")
         )
     }
 
@@ -119,7 +119,7 @@ class TmdbCollectionSourceResolver @Inject constructor(
             ?: error(string(R.string.tmdb_error_person_not_found))
         TmdbSourceImportMetadata(
             title = body.name?.takeIf { it.isNotBlank() },
-            coverImageUrl = imageUrl(body.profilePath, "w500")
+            coverImageUrl = imageUrl(body.profilePath, "w342")
         )
     }
 
@@ -185,7 +185,7 @@ class TmdbCollectionSourceResolver @Inject constructor(
                     type = ContentType.MOVIE,
                     rawType = "movie",
                     name = title,
-                    poster = imageUrl(it.posterPath, "w500") ?: imageUrl(it.backdropPath, "w780"),
+                    poster = imageUrl(it.posterPath, "w342") ?: imageUrl(it.backdropPath, "w780"),
                     posterShape = PosterShape.POSTER,
                     background = imageUrl(it.backdropPath, "w1280"),
                     logo = null,
@@ -362,7 +362,7 @@ class TmdbCollectionSourceResolver @Inject constructor(
             type = contentType,
             rawType = rawType,
             name = title,
-            poster = imageUrl(posterPath, "w500") ?: imageUrl(backdropPath, "w780"),
+            poster = imageUrl(posterPath, "w342") ?: imageUrl(backdropPath, "w780"),
             posterShape = PosterShape.POSTER,
             background = imageUrl(backdropPath, "w1280"),
             logo = null,
@@ -388,7 +388,7 @@ class TmdbCollectionSourceResolver @Inject constructor(
             type = contentType,
             rawType = rawType,
             name = title,
-            poster = imageUrl(posterPath, "w500") ?: imageUrl(backdropPath, "w780"),
+            poster = imageUrl(posterPath, "w342") ?: imageUrl(backdropPath, "w780"),
             posterShape = PosterShape.POSTER,
             background = imageUrl(backdropPath, "w1280"),
             logo = null,
@@ -419,7 +419,7 @@ class TmdbCollectionSourceResolver @Inject constructor(
             type = contentType,
             rawType = rawType,
             name = title,
-            poster = imageUrl(posterPath, "w500") ?: imageUrl(backdropPath, "w780"),
+            poster = imageUrl(posterPath, "w342") ?: imageUrl(backdropPath, "w780"),
             posterShape = PosterShape.POSTER,
             background = imageUrl(backdropPath, "w1280"),
             logo = null,
@@ -450,7 +450,7 @@ class TmdbCollectionSourceResolver @Inject constructor(
             type = contentType,
             rawType = rawType,
             name = title,
-            poster = imageUrl(posterPath, "w500") ?: imageUrl(backdropPath, "w780"),
+            poster = imageUrl(posterPath, "w342") ?: imageUrl(backdropPath, "w780"),
             posterShape = PosterShape.POSTER,
             background = imageUrl(backdropPath, "w1280"),
             logo = null,

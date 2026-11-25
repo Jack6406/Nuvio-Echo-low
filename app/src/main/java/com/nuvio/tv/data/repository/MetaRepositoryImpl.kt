@@ -49,6 +49,7 @@ class MetaRepositoryImpl @Inject constructor(
          * went back to the addon.
          */
         private const val MAX_META_CACHE_ENTRIES = 160
+        private const val MAX_META_CACHE_ENTRIES_LOW_RAM = 48
         /**
          * Background lookups the addons see at once. Unlimited, launch sent ~45 at one addon in 20 s, which slowed
          * its answers from ~1 s to 3-4 s and left a details page waiting behind them.
@@ -74,10 +75,12 @@ class MetaRepositoryImpl @Inject constructor(
     /**
      * Creates a thread-safe LRU map that evicts oldest entries when [maxSize] is exceeded.
      */
-    private fun <K, V> createLruCacheMap(maxSize: Int): MutableMap<K, V> {
-        val lru = object : LinkedHashMap<K, V>(maxSize, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>?): Boolean =
-                size > maxSize
+    private fun <K, V> createLruCacheMap(maxSize: Int, lowRamMaxSize: Int = maxSize): MutableMap<K, V> {
+        val lru = object : LinkedHashMap<K, V>(maxSize.coerceAtMost(64), 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>?): Boolean {
+                val limit = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) lowRamMaxSize else maxSize
+                return size > limit
+            }
         }
         return java.util.Collections.synchronizedMap(lru)
     }
@@ -127,9 +130,9 @@ class MetaRepositoryImpl @Inject constructor(
 
     // In-memory cache: "addonBaseUrl|type:id" -> CachedMeta with TTL.
     // Respects Cache-Control max-age from addon responses.
-    private val metaCache = createLruCacheMap<String, CachedMeta>(MAX_META_CACHE_ENTRIES)
+    private val metaCache = createLruCacheMap<String, CachedMeta>(MAX_META_CACHE_ENTRIES, MAX_META_CACHE_ENTRIES_LOW_RAM)
     // Separate cache for full meta fetched from addons (bypasses catalog-level cache)
-    private val addonMetaCache = createLruCacheMap<String, CachedMeta>(MAX_META_CACHE_ENTRIES)
+    private val addonMetaCache = createLruCacheMap<String, CachedMeta>(MAX_META_CACHE_ENTRIES, MAX_META_CACHE_ENTRIES_LOW_RAM)
     private val primaryAddonMetaCache = createLruCacheMap<String, CachedMeta>(MAX_PRIMARY_META_CACHE_ENTRIES)
 
     // In-flight deduplication: prevents concurrent coroutines from firing duplicate requests

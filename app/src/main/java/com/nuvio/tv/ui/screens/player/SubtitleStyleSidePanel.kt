@@ -75,9 +75,9 @@ private val PANEL_OUTLINE_COLORS = listOf(
     Color(0xFFFF5C5C)
 )
 
-private val StyleCardWidth = 228.dp
-private val StyleCardHeight = 102.dp
-private val StyleCardGap = NuvioTheme.spacing.md
+private val StyleCardWidth = 212.dp
+private val StyleCardHeight = 88.dp
+private val StyleCardGap = 10.dp
 private val StyleGridWidth = (StyleCardWidth * 3) + (StyleCardGap * 2)
 
 private fun subtitleColorLabel(colorArgb: Int): String? {
@@ -111,12 +111,17 @@ internal fun SubtitleStyleSidePanel(
 
     Column(
         modifier = modifier
-            .width(780.dp)
-            .height(330.dp)
-            .clip(RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp))
-            .background(Color(0xFF101010))
+            .width(716.dp)
+            .height(276.dp)
+            .clip(RoundedCornerShape(bottomStart = 18.dp, bottomEnd = 18.dp))
+            .background(Color(0xCC101318))
+            .border(
+                width = 0.8.dp,
+                color = Color.White.copy(alpha = 0.14f),
+                shape = RoundedCornerShape(bottomStart = 18.dp, bottomEnd = 18.dp)
+            )
             .then(if (isStyleDisabledByLibass) Modifier.focusProperties { canFocus = false } else Modifier)
-            .padding(start = NuvioTheme.spacing.lg, end = NuvioTheme.spacing.lg, top = 22.dp, bottom = 10.dp)
+            .padding(start = NuvioTheme.spacing.md, end = NuvioTheme.spacing.md, top = 14.dp, bottom = 10.dp)
     ) {
         Box(
             modifier = Modifier.fillMaxWidth(),
@@ -191,7 +196,7 @@ internal fun SubtitleStyleSidePanel(
                     centerContent = false,
                     modifier = Modifier
                         .width(StyleCardWidth)
-                        .height(140.dp)
+                        .height(120.dp)
                 ) {
                     val currentAlphaPercent = (Color(subtitleStyle.textColor).alpha * 100f).roundToInt().coerceIn(0, 100)
                     Column(

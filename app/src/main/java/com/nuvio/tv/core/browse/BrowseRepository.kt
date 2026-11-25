@@ -84,9 +84,19 @@ class BrowseRepository @Inject constructor(
 
     private data class CachedPage(val page: BrowsePage, val storedAtMs: Long)
 
-    private val pageCache = object : LinkedHashMap<String, CachedPage>(64, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedPage>?): Boolean =
-            size > MAX_CACHED_PAGES
+    private val pageCache = object : LinkedHashMap<String, CachedPage>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedPage>?): Boolean {
+            val limit = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) {
+                MAX_CACHED_PAGES_LOW_RAM
+            } else {
+                MAX_CACHED_PAGES
+            }
+            return size > limit
+        }
+    }
+
+    fun trimMemoryCache() {
+        synchronized(pageCache) { pageCache.clear() }
     }
     private val pagesInFlight = ConcurrentHashMap<String, CompletableDeferred<BrowsePage>>()
 
@@ -644,6 +654,7 @@ class BrowseRepository @Inject constructor(
         const val ANIMATION_GENRE = "16"
         const val KEYWORD_PREFS = "browse_keyword_ids"
         const val MAX_CACHED_PAGES = 80
+        const val MAX_CACHED_PAGES_LOW_RAM = 24
         const val CACHE_TTL_MS = 30 * 60 * 1000L
         const val TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p"
         const val CINEMETA_URL = "https://v3-cinemeta.strem.io"

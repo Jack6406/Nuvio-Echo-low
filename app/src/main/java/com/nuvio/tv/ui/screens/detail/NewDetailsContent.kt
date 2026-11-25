@@ -85,8 +85,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -689,12 +692,14 @@ internal fun NewDetailsContent(
             if (wikiquotes.isNotEmpty() || !productionFacts.isEmpty) {
                 item(key = "nd_quotes_facts", contentType = "nd_quotes_facts") {
                     val accent = com.nuvio.tv.ui.screens.player.rememberDynamicArtworkAccent(meta.background ?: meta.poster)
-                    NdQuotesAndFactsSection(
-                        title = meta.name,
-                        quotes = wikiquotes,
-                        facts = productionFacts,
-                        accent = accent
-                    )
+                    RowScroll(rowSpec) {
+                        NdQuotesAndFactsSection(
+                            title = meta.name,
+                            quotes = wikiquotes,
+                            facts = productionFacts,
+                            accent = accent
+                        )
+                    }
                 }
             }
             // 5. Movie / Series Details (below Quotes & Production Facts)
@@ -1104,17 +1109,38 @@ private fun NdHero(
                     )
                 }
 
-                // Single sleek bottom metadata strip (Genres · Year · 2h 9m · IMDb · RT)
+                // Single sleek bottom metadata strip (Genres · Year · Runtime • Letterboxd • IMDb • RT)
                 val compactMetaLine = remember(meta, state.tmdbRating, state.mdbListRatings) {
                     val genresPart = meta.genres.take(2).joinToString(" · ").takeIf { it.isNotBlank() }
                     val yearPart = meta.releaseInfo?.trim()?.take(4)?.takeIf { it.length == 4 }
                     val runtimePart = formatReadableRuntime(meta.runtime)
-                    val imdbVal = state.mdbListRatings?.imdb ?: meta.imdbRating?.toDouble()
-                    val imdbPart = imdbVal?.takeIf { it > 0.0 }?.let { "IMDb ${String.format(java.util.Locale.US, "%.1f", it)}" }
-                    val rtPart = state.mdbListRatings?.tomatoes?.takeIf { it > 0.0 }?.let { "RT ${it.toInt()}%" }
-                    listOfNotNull(genresPart, yearPart, runtimePart, imdbPart, rtPart).joinToString("  •  ")
+                    val lbVal = state.mdbListRatings?.letterboxd?.takeIf { it > 0.0 }
+                    val imdbVal = (state.mdbListRatings?.imdb ?: meta.imdbRating?.toDouble())?.takeIf { it > 0.0 }
+                    val rtVal = state.mdbListRatings?.tomatoes?.takeIf { it > 0.0 }
+
+                    val prefixParts = listOfNotNull(genresPart, yearPart, runtimePart)
+                    val ratingParts = buildList {
+                        lbVal?.let { add("Letterboxd ${String.format(java.util.Locale.US, "%.1f", it)}" to Color(0xFF00E054)) }
+                        imdbVal?.let { add("IMDb ${String.format(java.util.Locale.US, "%.1f", it)}" to Color(0xFFF5C518)) }
+                        rtVal?.let { add("RT ${it.toInt()}%" to Color(0xFFFA320A)) }
+                    }
+
+                    buildAnnotatedString {
+                        prefixParts.forEachIndexed { idx, part ->
+                            if (idx > 0) {
+                                withStyle(SpanStyle(color = Color.White.copy(alpha = 0.55f))) { append("  •  ") }
+                            }
+                            withStyle(SpanStyle(color = Color.White.copy(alpha = 0.86f))) { append(part) }
+                        }
+                        ratingParts.forEachIndexed { idx, (label, brandColor) ->
+                            if (prefixParts.isNotEmpty() || idx > 0) {
+                                withStyle(SpanStyle(color = Color.White.copy(alpha = 0.55f))) { append("  •  ") }
+                            }
+                            withStyle(SpanStyle(color = brandColor, fontWeight = FontWeight.SemiBold)) { append(label) }
+                        }
+                    }
                 }
-                if (compactMetaLine.isNotBlank()) {
+                if (compactMetaLine.text.isNotBlank()) {
                     Text(
                         text = compactMetaLine,
                         color = Color.White.copy(alpha = 0.86f),
@@ -2080,13 +2106,19 @@ private fun NdStudiosRow(studios: List<com.nuvio.tv.domain.model.MetaCompany>) {
         ) {
             items(studios.size, key = { idx -> "${studios[idx].name}_$idx" }) { idx ->
                 val company = studios[idx]
+                var focused by remember { mutableStateOf(false) }
                 Box(
                     modifier = Modifier
                         .height(44.dp)
                         .widthIn(min = 104.dp, max = 160.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(Color.White.copy(alpha = 0.10f))
-                        .border(0.5.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(10.dp))
+                        .background(if (focused) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.10f))
+                        .border(
+                            width = if (focused) 1.5.dp else 0.5.dp,
+                            color = if (focused) Color(0xFFCFDCE8) else Color.White.copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        .ndClickable(onFocusChanged = { focused = it }, onClick = {})
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -2176,7 +2208,21 @@ private fun NdQuotesAndFactsSection(
         }
 
         if (!facts.isEmpty) {
-            Column(modifier = Modifier.weight(0.75f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            var factsFocused by remember { mutableStateOf(false) }
+            Column(
+                modifier = Modifier
+                    .weight(0.75f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (factsFocused) Color.White.copy(alpha = 0.06f) else Color.Transparent)
+                    .border(
+                        width = if (factsFocused) 1.dp else 0.dp,
+                        color = if (factsFocused) Color(0xFFCFDCE8).copy(alpha = 0.45f) else Color.Transparent,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    .ndClickable(onFocusChanged = { factsFocused = it }, onClick = {})
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text("Production facts", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                 Text(
                     "Wikidata fields",

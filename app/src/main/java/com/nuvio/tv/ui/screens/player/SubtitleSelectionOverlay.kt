@@ -408,7 +408,9 @@ internal fun SubtitleSelectionOverlay(
         onDismiss = onDismiss,
         modifier = modifier,
         captureKeys = false,
-        contentPadding = PaddingValues(start = 52.dp, end = 52.dp, top = 36.dp, bottom = 76.dp)
+        drawShade = false,
+        overlayTint = Color.Transparent,
+        contentPadding = PaddingValues(start = 28.dp, end = 28.dp, top = 16.dp, bottom = 22.dp)
     ) {
         LaunchedEffect(visible) {
             if (!visible) return@LaunchedEffect
@@ -476,15 +478,29 @@ internal fun SubtitleSelectionOverlay(
             pendingStyleFocusKey = null
         }
 
-        Column(verticalArrangement = Arrangement.Bottom) {
+        Column(
+            verticalArrangement = Arrangement.Bottom,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .background(
+                    color = Color(0xCC0C0F14),
+                    shape = RoundedCornerShape(16.dp)
+                )
+                .border(
+                    width = 0.8.dp,
+                    color = Color.White.copy(alpha = 0.14f),
+                    shape = RoundedCornerShape(16.dp)
+                )
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
             Text(
                 text = stringResource(R.string.subtitle_dialog_title),
-                style = MaterialTheme.typography.headlineMedium,
+                style = MaterialTheme.typography.titleMedium,
                 color = Color.White,
-                modifier = Modifier.padding(bottom = NuvioTheme.spacing.md)
+                modifier = Modifier.padding(bottom = 8.dp)
             )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 SubtitleLanguageRail(
                     items = languageItems,
                     selectedLanguageKey = selectedLanguageKey,
@@ -675,13 +691,13 @@ private fun SubtitleLanguageRail(
         onFocusRequestConsumed()
     }
 
-    RailColumn(width = 200.dp, title = stringResource(R.string.subtitle_tab_languages)) {
+    RailColumn(width = 168.dp, title = stringResource(R.string.subtitle_tab_languages)) {
         LazyColumn(
             state = listState,
             verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.xs),
-            contentPadding = PaddingValues(top = NuvioTheme.spacing.sm, bottom = NuvioTheme.spacing.sm),
+            contentPadding = PaddingValues(top = 4.dp, bottom = 4.dp),
             modifier = Modifier
-                .heightIn(max = 720.dp)
+                .heightIn(max = 260.dp)
         ) {
             items(items = items, key = { item -> item.key }) { item ->
                 SubtitleLanguageCard(
@@ -755,7 +771,7 @@ private fun SubtitleOptionsRail(
         onFocusRequestConsumed()
     }
 
-    RailColumn(width = 300.dp, title = stringResource(R.string.subtitle_dialog_title)) {
+    RailColumn(width = 268.dp, title = stringResource(R.string.subtitle_dialog_title)) {
         when {
             selectedLanguageKey == SubtitleOffLanguageKey -> {
                 OverlayEmptyCard(text = stringResource(R.string.subtitle_none))
@@ -773,9 +789,9 @@ private fun SubtitleOptionsRail(
                 LazyColumn(
                     state = listState,
                     verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.xs),
-                    contentPadding = PaddingValues(top = NuvioTheme.spacing.sm, bottom = NuvioTheme.spacing.sm),
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 4.dp),
                     modifier = Modifier
-                        .heightIn(max = 720.dp)
+                        .heightIn(max = 260.dp)
                 ) {
                     items(items = options, key = { option -> option.id }) { option ->
                         SubtitleOptionCard(
@@ -829,16 +845,16 @@ private fun SubtitleStyleRail(
     val styleCardModifier = if (isStyleDisabledByLibass) Modifier.alpha(0.35f) else Modifier
     val styleRailModifier = if (isStyleDisabledByLibass) Modifier.focusProperties { canFocus = false } else Modifier
     RailColumn(
-        width = 280.dp,
+        width = 252.dp,
         title = stringResource(R.string.subtitle_style_title),
         modifier = styleRailModifier
     ) {
         LazyColumn(
             state = listState,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(bottom = NuvioTheme.spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(top = 4.dp, bottom = 4.dp),
             modifier = Modifier
-                .heightIn(max = 720.dp)
+                .heightIn(max = 260.dp)
         ) {
             item {
                 Card(
@@ -1134,7 +1150,7 @@ private fun SubtitleLanguageCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = NuvioTheme.spacing.sm),
+                .padding(horizontal = 10.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1226,7 +1242,7 @@ private fun SubtitleOptionCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = NuvioTheme.spacing.md, vertical = 9.dp),
+                .padding(horizontal = 10.dp, vertical = 7.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {

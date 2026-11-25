@@ -122,7 +122,7 @@ android {
         targetSdk = 36
         val minuteEpoch = (System.currentTimeMillis() / 60_000L).toInt()
         versionCode = maxOf(2000 + (providers.environmentVariable("GITHUB_RUN_NUMBER").orNull?.trim()?.toIntOrNull() ?: 0), minuteEpoch)
-        versionName = "1.1.0-beta.6"
+        versionName = "1.1.0-beta.15"
 
         buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
         buildConfigField("String", "INTRODB_API_URL", "\"${localProperties.getProperty("INTRODB_API_URL", "").ifBlank { "https://api.introdb.app/" }}\"")

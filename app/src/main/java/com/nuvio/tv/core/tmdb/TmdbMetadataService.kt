@@ -52,17 +52,27 @@ class TmdbMetadataService(
     @Inject
     constructor(tmdbApi: TmdbApi) : this(tmdbApi, Dispatchers.IO)
 
-    // In-memory caches
-    private val enrichmentCache = ConcurrentHashMap<String, TmdbEnrichment>()
-    private val episodeCache = ConcurrentHashMap<String, Map<Pair<Int, Int>, TmdbEpisodeEnrichment>>()
+    private fun <K, V> boundedLruMap(lowRamCap: Int, defaultCap: Int): MutableMap<K, V> {
+        val lru = object : LinkedHashMap<K, V>(defaultCap.coerceAtMost(64), 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>?): Boolean {
+                val cap = if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) lowRamCap else defaultCap
+                return size > cap
+            }
+        }
+        return java.util.Collections.synchronizedMap(lru)
+    }
+
+    // Bounded in-memory LRU caches (tightly capped on 1 GB Fire TV Stick setups)
+    private val enrichmentCache = boundedLruMap<String, TmdbEnrichment>(lowRamCap = 48, defaultCap = 120)
+    private val episodeCache = boundedLruMap<String, Map<Pair<Int, Int>, TmdbEpisodeEnrichment>>(lowRamCap = 16, defaultCap = 48)
     private val enrichmentInFlight = ConcurrentHashMap<String, CompletableDeferred<TmdbEnrichment?>>()
     private val episodeInFlight = ConcurrentHashMap<String, CompletableDeferred<Map<Pair<Int, Int>, TmdbEpisodeEnrichment>>>()
-    private val personCache = ConcurrentHashMap<String, PersonDetail>()
-    private val moreLikeThisCache = ConcurrentHashMap<String, List<MetaPreview>>()
-    private val entityHeaderCache = ConcurrentHashMap<String, TmdbEntityHeader>()
-    private val entityRailCache = ConcurrentHashMap<String, List<MetaPreview>>()
-    private val entityBrowseCache = ConcurrentHashMap<String, TmdbEntityBrowseData>()
-    private val backdropOptionsCache = ConcurrentHashMap<String, List<TmdbBackdropOption>>()
+    private val personCache = boundedLruMap<String, PersonDetail>(lowRamCap = 24, defaultCap = 64)
+    private val moreLikeThisCache = boundedLruMap<String, List<MetaPreview>>(lowRamCap = 24, defaultCap = 64)
+    private val entityHeaderCache = boundedLruMap<String, TmdbEntityHeader>(lowRamCap = 24, defaultCap = 64)
+    private val entityRailCache = boundedLruMap<String, List<MetaPreview>>(lowRamCap = 24, defaultCap = 64)
+    private val entityBrowseCache = boundedLruMap<String, TmdbEntityBrowseData>(lowRamCap = 16, defaultCap = 48)
+    private val backdropOptionsCache = boundedLruMap<String, List<TmdbBackdropOption>>(lowRamCap = 12, defaultCap = 32)
 
     /**
      * Fetches all available backdrop artworks from TMDB for the Backdrop Picker on the details page.
@@ -145,6 +155,11 @@ class TmdbMetadataService(
         moreLikeThisCache.clear()
         entityRailCache.clear()
         entityBrowseCache.clear()
+        personCache.clear()
+        entityHeaderCache.clear()
+        if (com.nuvio.tv.core.runtime.DeviceMemoryTier.isFireStick1GbMode) {
+            episodeCache.clear()
+        }
     }
 
     /**
@@ -399,7 +414,7 @@ class TmdbMetadataService(
                             tmdbId = network.id
                         )
                     }
-                val poster = buildImageUrl(details?.posterPath, size = "w500")
+                val poster = buildImageUrl(details?.posterPath, size = "w342")
                 val backdrop = buildImageUrl(details?.backdropPath, size = "w1280")
 
                 val collectionId = details?.belongsToCollection?.id
@@ -423,7 +438,7 @@ class TmdbMetadataService(
                         MetaCastMember(
                             name = name,
                             character = member.character?.takeIf { it.isNotBlank() },
-                            photo = buildImageUrl(member.profilePath, size = "w500"),
+                            photo = buildImageUrl(member.profilePath, size = "w342"),
                             tmdbId = member.id
                         )
                     }
@@ -442,7 +457,7 @@ class TmdbMetadataService(
                             MetaCastMember(
                                 name = name,
                                 character = "Creator",
-                                photo = buildImageUrl(creatorItem.profilePath, size = "w500"),
+                                photo = buildImageUrl(creatorItem.profilePath, size = "w342"),
                                 tmdbId = tmdbPersonId
                             )
                         }
@@ -482,7 +497,7 @@ class TmdbMetadataService(
                         MetaCastMember(
                             name = name,
                             character = "Director",
-                            photo = buildImageUrl(member.profilePath, size = "w500"),
+                            photo = buildImageUrl(member.profilePath, size = "w342"),
                             tmdbId = tmdbPersonId
                         )
                     }
@@ -517,7 +532,7 @@ class TmdbMetadataService(
                         MetaCastMember(
                             name = name,
                             character = "Writer",
-                            photo = buildImageUrl(member.profilePath, size = "w500"),
+                            photo = buildImageUrl(member.profilePath, size = "w342"),
                             tmdbId = tmdbPersonId
                         )
                     }
@@ -842,7 +857,7 @@ class TmdbMetadataService(
                         }
 
                         val backdrop = buildImageUrl(localizedBackdropPath ?: rec.backdropPath, size = "w1280")
-                        val fallbackPoster = buildImageUrl(rec.posterPath, size = "w780")
+                        val fallbackPoster = buildImageUrl(rec.posterPath, size = "w342")
 
                         val releaseInfo = if (recTmdbType == "tv") {
                             val startYear = rec.firstAirDate.yearPart()
@@ -953,7 +968,7 @@ class TmdbMetadataService(
                         }
 
                         val backdrop = buildImageUrl(localizedBackdropPath ?: part.backdropPath, size = "w1280")
-                        val fallbackPoster = buildImageUrl(part.posterPath, size = "w780")
+                        val fallbackPoster = buildImageUrl(part.posterPath, size = "w342")
                         val releaseInfo = part.releaseDate?.take(4)
 
                         MetaPreview(
@@ -1231,7 +1246,7 @@ class TmdbMetadataService(
             preferredLanguage = preferredLanguage
         ) ?: return null
 
-        val poster = buildImageUrl(result.posterPath, size = "w500")
+        val poster = buildImageUrl(result.posterPath, size = "w342")
             ?: buildImageUrl(result.backdropPath, size = "w780")
             ?: return null
         val background = buildImageUrl(result.backdropPath, size = "w1280")
