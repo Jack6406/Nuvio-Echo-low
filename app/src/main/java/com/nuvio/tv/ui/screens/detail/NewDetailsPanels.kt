@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.detail
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,6 +51,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
@@ -587,10 +589,20 @@ internal fun PlayOptionsMenu(
     showFromStart: Boolean,
     onPlayManually: () -> Unit,
     onFromStart: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    accent: Color = Color(0xFFCFDCE8)
 ) {
     val density = LocalDensity.current
     val first = remember { FocusRequester() }
+    val accentContent = if (
+        (accent.red * 0.299f + accent.green * 0.587f + accent.blue * 0.114f) > 0.60f
+    ) Color(0xFF0A0C10) else Color.White
+    val glassFill = Brush.verticalGradient(
+        listOf(Color(0xE6161B26), Color(0xEE0B0E15), Color(0xF2080B10))
+    )
+    val glassBorder = Brush.linearGradient(
+        listOf(accent.copy(alpha = 0.88f), Color.White.copy(alpha = 0.28f), accent.copy(alpha = 0.55f))
+    )
     BackHandler { onDismiss() }
     LaunchedEffect(Unit) {
         repeat(5) {
@@ -598,29 +610,52 @@ internal fun PlayOptionsMenu(
             delay(40)
         }
     }
-    val x = anchor.right + with(density) { 12.dp.toPx() }
-    val y = anchor.top - with(density) { 34.dp.toPx() }
+    val x = anchor.right + with(density) { 10.dp.toPx() }
+    val y = anchor.top - with(density) { 30.dp.toPx() }
     Column(
         modifier = Modifier
             .offset { IntOffset(x.toInt(), y.toInt().coerceAtLeast(0)) }
-            .width(220.dp)
-            .detailGlassPanel(RoundedCornerShape(18.dp), strength = 1.6f)
+            .width(198.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(glassFill)
+            .border(1.dp, glassBorder, RoundedCornerShape(16.dp))
             .ignoreHeldSelect()
             .trapDpadFocus()
             .focusGroup()
-            .padding(8.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+            .padding(7.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         Text(
-            title, color = NdText3, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 6.dp)
+            title,
+            color = Color.White.copy(alpha = 0.86f),
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 3.dp, bottom = 3.dp)
         )
-        HoldItem(stringResource(R.string.play_manually), false, first, onPlayManually) { c ->
-            Icon(Icons.AutoMirrored.Filled.List, null, tint = c, modifier = Modifier.size(18.dp))
+        HoldItem(
+            label = stringResource(R.string.play_manually),
+            checked = false,
+            requester = first,
+            onClick = onPlayManually,
+            accent = accent,
+            accentContent = accentContent,
+            showDivider = true
+        ) { c ->
+            Icon(Icons.Filled.PlayArrow, null, tint = c, modifier = Modifier.size(15.dp))
         }
         if (showFromStart) {
-            HoldItem(stringResource(R.string.cw_action_start_from_beginning), false, null, onFromStart) { c ->
-                Icon(Icons.Filled.Replay, null, tint = c, modifier = Modifier.size(18.dp))
+            HoldItem(
+                label = stringResource(R.string.cw_action_start_from_beginning),
+                checked = false,
+                requester = null,
+                onClick = onFromStart,
+                accent = accent,
+                accentContent = accentContent,
+                showDivider = true
+            ) { c ->
+                Icon(Icons.Filled.Replay, null, tint = c, modifier = Modifier.size(15.dp))
             }
         }
     }
@@ -844,23 +879,52 @@ private fun HoldItem(
     checked: Boolean,
     requester: FocusRequester?,
     onClick: () -> Unit,
+    accent: Color? = null,
+    accentContent: Color = Color.White,
+    showDivider: Boolean = false,
     icon: @Composable (Color) -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
+    val fg = if (focused && accent != null) accentContent else Color.White.copy(alpha = if (focused) 1f else 0.90f)
+    val pillModifier = if (focused && accent != null) {
+        Modifier
+            .clip(NdPill)
+            .background(Brush.horizontalGradient(listOf(accent, accent.copy(alpha = 0.82f))))
+            .border(1.dp, Color.White.copy(alpha = 0.65f), NdPill)
+    } else if (focused) {
+        Modifier.detailGlassLens(NdPill)
+    } else {
+        Modifier
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(36.dp)
-            .then(if (focused) Modifier.detailGlassLens(NdPill) else Modifier)
+            .height(33.dp)
+            .then(pillModifier)
             .ndClickable(focusRequester = requester, onFocusChanged = { focused = it }, onClick = onClick)
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        icon(Color.White)
-        Text(label, color = Color.White.copy(alpha = if (focused) 1f else 0.88f), fontSize = 14.sp, fontWeight = FontWeight.Medium,
-            modifier = Modifier.weight(1f))
-        if (checked) Text("✓", color = NdText2, fontSize = 12.sp)
+        icon(fg)
+        if (showDivider) {
+            Box(
+                Modifier
+                    .width(0.8.dp)
+                    .height(14.dp)
+                    .background(fg.copy(alpha = 0.28f))
+            )
+        }
+        Text(
+            label,
+            color = fg,
+            fontSize = 12.5.sp,
+            fontWeight = if (focused) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        if (checked) Text("✓", color = if (focused && accent != null) accentContent else NdText2, fontSize = 12.sp)
     }
 }
 

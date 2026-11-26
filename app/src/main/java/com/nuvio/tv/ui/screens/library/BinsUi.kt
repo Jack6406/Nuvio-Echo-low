@@ -37,6 +37,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -243,8 +250,21 @@ internal fun BinPillMenu(
     initialIndex: Int,
     openedByHold: Boolean,
     onDismiss: () -> Unit,
-    width: Dp = 240.dp
+    width: Dp = 206.dp,
+    posterUrl: String? = null
 ) {
+    val context = LocalContext.current
+    val accent = com.nuvio.tv.ui.screens.player.rememberDynamicArtworkAccent(posterUrl)
+    val accentContent = if (
+        (accent.red * 0.299f + accent.green * 0.587f + accent.blue * 0.114f) > 0.60f
+    ) Color(0xFF0A0C10) else Color.White
+    val glassFill = Brush.verticalGradient(
+        listOf(Color(0xDE161B26), Color(0xE60B0E15), Color(0xEC090C12))
+    )
+    val glassBorder = Brush.linearGradient(
+        listOf(accent.copy(alpha = 0.88f), Color.White.copy(alpha = 0.28f), accent.copy(alpha = 0.55f))
+    )
+    val focusFill = Brush.horizontalGradient(listOf(accent, accent.copy(alpha = 0.82f)))
     val requesters = remember(items.size) { List(items.size) { FocusRequester() } }
     val scrollState = rememberScrollState()
     val density = LocalDensity.current
@@ -289,9 +309,11 @@ internal fun BinPillMenu(
                     val x = anchor.left.toInt().coerceIn(margin, (constraints.maxWidth - margin - p.width).coerceAtLeast(margin))
                     layout(constraints.maxWidth, constraints.maxHeight) { p.place(x, y) }
                 }
-                .widthIn(min = width)
-                .heightIn(max = 360.dp)
-                .detailGlassPanel(RoundedCornerShape(20.dp), strength = 1.6f)
+                .widthIn(min = if (!posterUrl.isNullOrBlank()) 268.dp else width)
+                .heightIn(max = 320.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(glassFill)
+                .border(1.dp, glassBorder, RoundedCornerShape(16.dp))
                 .then(if (openedByHold) Modifier.ignoreHeldSelect() else Modifier)
                 .onPreviewKeyEvent { event ->
                     val native = event.nativeKeyEvent
@@ -318,46 +340,103 @@ internal fun BinPillMenu(
                 }
                 .trapDpadFocus()
                 .focusGroup()
-                .padding(6.dp),
+                .padding(8.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            if (title != null) {
-                Text(
-                    title, color = BinsMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 4.dp)
-                )
-            }
-            Column(
-                modifier = Modifier
-                    .weight(1f, fill = false)
-                    .verticalScroll(scrollState),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                items.forEachIndexed { i, item ->
-                    var focused by remember { mutableStateOf(false) }
-                    Row(
+                if (!posterUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = remember(context, posterUrl) {
+                            ImageRequest.Builder(context).data(posterUrl).size(120, 180).build()
+                        },
+                        contentDescription = title,
+                        contentScale = ContentScale.Crop,
                         modifier = Modifier
-                            .widthIn(min = width - 12.dp)
-                            .height(38.dp)
-                            .selectionSurface(focused, BinsPillShape)
-                            .ndClickable(
-                                focusRequester = requesters[i],
-                                onFocusChanged = {
-                                    focused = it
-                                    if (it) activeIndex = i
-                                },
-                                onClick = item.onClick
-                            )
-                            .padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                            .width(52.dp)
+                            .height(78.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(0.7.dp, Color.White.copy(alpha = 0.24f), RoundedCornerShape(8.dp))
+                    )
+                    Box(
+                        Modifier
+                            .width(0.8.dp)
+                            .height(72.dp)
+                            .background(Color.White.copy(alpha = 0.16f))
+                    )
+                }
+                Column(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    if (title != null) {
                         Text(
-                            item.label, color = Color.White, fontSize = 15.sp, maxLines = 1,
-                            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false)
+                            title,
+                            color = Color.White.copy(alpha = 0.88f),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 2.dp, bottom = 3.dp)
                         )
-                        if (item.checked) {
-                            Spacer(Modifier.width(18.dp))
-                            Text("✓", color = if (focused) Color.White else BinsMuted, fontSize = 14.sp)
+                    }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .verticalScroll(scrollState),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        items.forEachIndexed { i, item ->
+                            var focused by remember { mutableStateOf(false) }
+                            val fg = if (focused) accentContent else Color.White.copy(alpha = 0.90f)
+                            val lower = item.label.lowercase()
+                            val rowIcon = when {
+                                "open" in lower || "play" in lower -> Icons.Filled.PlayArrow
+                                "remove" in lower || "saved" in lower || "bin" in lower -> Icons.Outlined.BookmarkBorder
+                                else -> null
+                            }
+                            Row(
+                                modifier = Modifier
+                                    .widthIn(min = if (!posterUrl.isNullOrBlank()) 176.dp else (width - 16.dp))
+                                    .height(33.dp)
+                                    .clip(BinsPillShape)
+                                    .then(if (focused) Modifier.background(focusFill) else Modifier.background(Color.Transparent))
+                                    .border(
+                                        width = if (focused) 1.dp else 0.dp,
+                                        color = if (focused) Color.White.copy(alpha = 0.65f) else Color.Transparent,
+                                        shape = BinsPillShape
+                                    )
+                                    .ndClickable(
+                                        focusRequester = requesters[i],
+                                        onFocusChanged = {
+                                            focused = it
+                                            if (it) activeIndex = i
+                                        },
+                                        onClick = item.onClick
+                                    )
+                                    .padding(horizontal = 11.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (!posterUrl.isNullOrBlank() && rowIcon != null) {
+                                    Icon(rowIcon, contentDescription = null, tint = fg, modifier = Modifier.size(15.dp))
+                                }
+                                Text(
+                                    item.label,
+                                    color = fg,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = if (focused) FontWeight.Bold else FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                if (item.checked) {
+                                    Spacer(Modifier.width(12.dp))
+                                    Text("✓", color = fg, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     }
                 }

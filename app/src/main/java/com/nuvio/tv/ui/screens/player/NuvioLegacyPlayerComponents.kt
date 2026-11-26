@@ -411,17 +411,30 @@ fun NuvioLegacyTopLeftBadges(
                 )
             }
             val isMovieHeader = uiState.currentSeason == null && uiState.currentEpisode == null
-            val movieLetterboxd = uiState.movieLetterboxdRating?.takeIf { it > 0.0 }
+            val movieLetterboxd = (uiState.mdbListRatings?.letterboxd ?: uiState.movieLetterboxdRating)?.takeIf { it > 0.0 }
             if (isMovieHeader && movieLetterboxd != null) {
-                Text(
-                    text = "★ ${String.format(java.util.Locale.US, "%.1f", movieLetterboxd)}",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontSize = 13.5.sp,
-                        fontWeight = FontWeight.SemiBold
-                    ),
-                    color = Color(0xFFCFDCE8),
-                    maxLines = 1
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    AsyncImage(
+                        model = remember(context) {
+                            ImageRequest.Builder(context).data(R.raw.mdblist_letterboxd).build()
+                        },
+                        contentDescription = "Letterboxd",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = String.format(java.util.Locale.US, "%.1f", movieLetterboxd),
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = Color.White,
+                        maxLines = 1
+                    )
+                }
             }
         }
     }
@@ -449,19 +462,18 @@ fun NuvioLegacyPrimaryPlayButton(
         animationSpec = tween(durationMillis = 150),
         label = "appleTvPlayScale"
     )
-    val focusedGlassColor = if (accentColor == Color.White || accentColor == Color(0xFFFFFFFF)) {
-        Color.White.copy(alpha = 0.22f)
-    } else {
-        accentColor.copy(alpha = 0.34f)
-    }
+    val solidFocusColor = accentColor.copy(alpha = 1f)
+    val focusedContentColor = if (
+        (solidFocusColor.red * 0.299f + solidFocusColor.green * 0.587f + solidFocusColor.blue * 0.114f) > 0.60f
+    ) Color(0xFF0A0C10) else Color.White
     val unfocusedGlassColor = Color(70, 70, 70, 56)
-    val contentColor = Color.White
+    val activeContentColor = if (isFocused) focusedContentColor else Color.White
     val label = if (isPlaying) stringResource(R.string.cd_pause) else stringResource(R.string.cd_play)
 
     Surface(
         onClick = onClick,
         modifier = modifier
-            .height(36.dp)
+            .height(31.dp)
             .pointerInput(onClick) {
                 detectTapGestures(onTap = { onClick() })
             }
@@ -488,17 +500,17 @@ fun NuvioLegacyPrimaryPlayButton(
         ),
         colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
             containerColor = unfocusedGlassColor,
-            focusedContainerColor = focusedGlassColor,
-            contentColor = contentColor,
-            focusedContentColor = Color.White
+            focusedContainerColor = solidFocusColor,
+            contentColor = Color.White,
+            focusedContentColor = focusedContentColor
         ),
         border = androidx.tv.material3.ClickableSurfaceDefaults.border(
             border = androidx.tv.material3.Border(
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.28f)),
+                border = BorderStroke(0.9.dp, Color.White.copy(alpha = 0.26f)),
                 shape = RoundedCornerShape(999.dp)
             ),
             focusedBorder = androidx.tv.material3.Border(
-                border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.95f)),
+                border = BorderStroke(1.2.dp, Color.White.copy(alpha = 0.85f)),
                 shape = RoundedCornerShape(999.dp)
             )
         ),
@@ -506,24 +518,24 @@ fun NuvioLegacyPrimaryPlayButton(
     ) {
         Row(
             modifier = Modifier
-                .height(36.dp)
-                .padding(horizontal = 15.dp),
+                .height(31.dp)
+                .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Icon(
                 painter = if (isPlaying) pausePainter else playPainter,
                 contentDescription = label,
-                tint = contentColor,
-                modifier = Modifier.size(15.dp)
+                tint = activeContentColor,
+                modifier = Modifier.size(13.5.dp)
             )
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelLarge.copy(
-                    fontSize = 12.5.sp,
+                    fontSize = 11.5.sp,
                     fontWeight = FontWeight.Bold
                 ),
-                color = contentColor,
+                color = activeContentColor,
                 maxLines = 1
             )
         }
@@ -554,22 +566,20 @@ fun NuvioLegacyCircleIconButton(
         animationSpec = tween(durationMillis = 150),
         label = "appleTvDockBtnScale"
     )
-    val focusedContentColor = Color.White
-    val focusedGlassColor = if (accentColor == Color.White || accentColor == Color(0xFFFFFFFF)) {
-        Color.White.copy(alpha = 0.22f)
-    } else {
-        accentColor.copy(alpha = 0.34f)
-    }
+    val solidFocusColor = accentColor.copy(alpha = 1f)
+    val focusedContentColor = if (
+        (solidFocusColor.red * 0.299f + solidFocusColor.green * 0.587f + solidFocusColor.blue * 0.114f) > 0.60f
+    ) Color(0xFF0A0C10) else Color.White
 
     Surface(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier
-            .height(36.dp)
+            .height(31.dp)
             .pointerInput(onClick, enabled) {
                 detectTapGestures(onTap = { if (enabled) onClick() })
             }
-            .widthIn(min = 36.dp)
+            .widthIn(min = 31.dp)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .focusProperties { up = upFocusRequester }
             .onPreviewKeyEvent { event ->
@@ -593,17 +603,17 @@ fun NuvioLegacyCircleIconButton(
         ),
         colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
             containerColor = Color(70, 70, 70, 42),
-            focusedContainerColor = focusedGlassColor,
+            focusedContainerColor = solidFocusColor,
             contentColor = Color.White.copy(alpha = 0.94f),
             focusedContentColor = focusedContentColor
         ),
         border = androidx.tv.material3.ClickableSurfaceDefaults.border(
             border = androidx.tv.material3.Border(
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f)),
+                border = BorderStroke(0.9.dp, Color.White.copy(alpha = 0.22f)),
                 shape = RoundedCornerShape(999.dp)
             ),
             focusedBorder = androidx.tv.material3.Border(
-                border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.95f)),
+                border = BorderStroke(1.2.dp, Color.White.copy(alpha = 0.85f)),
                 shape = RoundedCornerShape(999.dp)
             )
         ),
@@ -611,9 +621,9 @@ fun NuvioLegacyCircleIconButton(
     ) {
         Row(
             modifier = Modifier
-                .height(36.dp)
+                .height(31.dp)
                 .animateContentSize(animationSpec = tween(durationMillis = 180))
-                .padding(horizontal = if (isFocused) 12.dp else 9.dp),
+                .padding(horizontal = if (isFocused) 10.dp else 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
@@ -622,22 +632,22 @@ fun NuvioLegacyCircleIconButton(
                     painter = iconPainter,
                     contentDescription = contentDescription,
                     tint = if (isFocused) focusedContentColor else Color.White.copy(alpha = 0.94f),
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(14.5.dp)
                 )
             } else {
                 Icon(
                     imageVector = icon,
                     contentDescription = contentDescription,
                     tint = if (isFocused) focusedContentColor else Color.White.copy(alpha = 0.94f),
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(14.5.dp)
                 )
             }
             if (isFocused && contentDescription.isNotBlank()) {
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(5.dp))
                 Text(
                     text = contentDescription,
                     style = MaterialTheme.typography.labelLarge.copy(
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
                         fontWeight = FontWeight.Bold
                     ),
                     color = focusedContentColor,

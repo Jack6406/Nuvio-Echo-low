@@ -141,12 +141,26 @@ internal suspend fun PlayerRuntimeController.fetchPlayerHeaderRatings(id: String
     val isSeries = normalizedType in listOf("series", "tv") ||
         (currentSeason != null && currentEpisode != null)
 
+    val allRatings = runCatching {
+        mdbListRepository?.getAllRatingsForItem(id, type)
+    }.getOrNull()
+    if (allRatings != null) {
+        _uiState.update {
+            it.copy(
+                mdbListRatings = allRatings,
+                movieLetterboxdRating = allRatings.letterboxd?.takeIf { r -> r > 0.0 } ?: it.movieLetterboxdRating
+            )
+        }
+    }
+
     if (!isSeries) {
-        val lbRating = runCatching {
-            mdbListRepository?.getLetterboxdRatingForItem(id, type)
-        }.getOrNull()?.takeIf { it > 0.0 }
-        if (lbRating != null) {
-            _uiState.update { it.copy(movieLetterboxdRating = lbRating) }
+        if (allRatings?.letterboxd == null) {
+            val lbRating = runCatching {
+                mdbListRepository?.getLetterboxdRatingForItem(id, type)
+            }.getOrNull()?.takeIf { it > 0.0 }
+            if (lbRating != null) {
+                _uiState.update { it.copy(movieLetterboxdRating = lbRating) }
+            }
         }
     } else {
         val season = currentSeason ?: return

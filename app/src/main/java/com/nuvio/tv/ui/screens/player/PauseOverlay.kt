@@ -38,6 +38,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
+import com.nuvio.tv.domain.model.MDBListRatings
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -80,7 +82,9 @@ fun PauseOverlay(
     positionMs: Long = 0L,
     durationMs: Long = 0L,
     showClock: Boolean = true,
-    castMembers: List<MetaCastMember> = emptyList()
+    castMembers: List<MetaCastMember> = emptyList(),
+    mdbListRatings: MDBListRatings? = null,
+    letterboxdRating: Double? = null
 ) {
     val context = LocalContext.current
     val playerViewModel: PlayerViewModel = hiltViewModel()
@@ -190,7 +194,7 @@ fun PauseOverlay(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth(0.48f),
+                modifier = Modifier.fillMaxWidth(0.60f),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -211,15 +215,107 @@ fun PauseOverlay(
                 }
                 PauseTitle(title = title, logo = logo)
                 val details = pauseDetails(episodeTitle, season, episode, year, type)
-                if (details.isNotBlank()) {
-                    Text(
-                        text = details,
-                        color = Color.White.copy(alpha = 0.82f),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                val effectiveRatings = mdbListRatings ?: playerUiState.mdbListRatings
+                val lbVal = (effectiveRatings?.letterboxd ?: letterboxdRating ?: playerUiState.movieLetterboxdRating)?.takeIf { it > 0.0 }
+                val imdbVal = effectiveRatings?.imdb?.takeIf { it > 0.0 }
+                val rtVal = effectiveRatings?.tomatoes?.takeIf { it > 0.0 }
+                val rtCertified = effectiveRatings?.tomatoesCertified == true
+                if (details.isNotBlank() || lbVal != null || imdbVal != null || rtVal != null) {
+                    val pauseContext = LocalContext.current
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        var needsDot = false
+                        if (details.isNotBlank()) {
+                            Text(
+                                text = details,
+                                color = Color.White.copy(alpha = 0.84f),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            needsDot = true
+                        }
+                        if (lbVal != null) {
+                            if (needsDot) Text("•", color = Color.White.copy(alpha = 0.45f), fontSize = 12.sp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                AsyncImage(
+                                    model = remember(pauseContext) {
+                                        ImageRequest.Builder(pauseContext).data(R.raw.mdblist_letterboxd).build()
+                                    },
+                                    contentDescription = "Letterboxd",
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = String.format(java.util.Locale.US, "%.1f", lbVal),
+                                    color = Color.White,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1
+                                )
+                            }
+                            needsDot = true
+                        }
+                        if (imdbVal != null) {
+                            if (needsDot) Text("•", color = Color.White.copy(alpha = 0.45f), fontSize = 12.sp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                AsyncImage(
+                                    model = remember(pauseContext) {
+                                        ImageRequest.Builder(pauseContext).data(R.raw.imdb_logo_2016).build()
+                                    },
+                                    contentDescription = "IMDb",
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier.width(24.dp).height(13.dp)
+                                )
+                                Text(
+                                    text = String.format(java.util.Locale.US, "%.1f", imdbVal),
+                                    color = Color.White,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1
+                                )
+                            }
+                            needsDot = true
+                        }
+                        if (rtVal != null) {
+                            if (needsDot) Text("•", color = Color.White.copy(alpha = 0.45f), fontSize = 12.sp)
+                            val rtRes = when {
+                                rtCertified && rtVal >= 70.0 -> R.raw.mdblist_tomatoes_certified
+                                rtVal >= 60.0 -> R.raw.mdblist_tomatoes
+                                else -> R.raw.mdblist_tomatoes_rotten
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                AsyncImage(
+                                    model = remember(pauseContext, rtRes) {
+                                        ImageRequest.Builder(pauseContext).data(rtRes).build()
+                                    },
+                                    contentDescription = "Rotten Tomatoes",
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = "${rtVal.toInt()}%",
+                                    color = Color.White,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
                 }
                 if (!description.isNullOrBlank()) {
                     Text(
@@ -248,84 +344,102 @@ fun PauseOverlay(
 @Composable
 private fun PauseCastSection(castMembers: List<MetaCastMember>) {
     val context = LocalContext.current
-    LazyRow(
-        modifier = Modifier.fillMaxWidth(0.88f),
-        contentPadding = PaddingValues(end = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        items(castMembers, key = { "${it.name}:${it.character.orEmpty()}" }) { member ->
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(Color.Black.copy(alpha = 0.38f))
-                    .border(0.75.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(999.dp))
-                    .padding(start = 5.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(9.dp)
-            ) {
-                Box(
+    Layout(
+        modifier = Modifier.fillMaxWidth(),
+        content = {
+            castMembers.forEach { member ->
+                Row(
                     modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.12f)),
-                    contentAlignment = Alignment.Center
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Color.Black.copy(alpha = 0.42f))
+                        .border(0.75.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(999.dp))
+                        .padding(start = 5.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(9.dp)
                 ) {
-                    val photoUrl = member.photo?.takeIf { it.isNotBlank() }
-                    if (photoUrl != null) {
-                        val request = remember(context, photoUrl) {
-                            ImageRequest.Builder(context)
-                                .data(photoUrl)
-                                .size(96, 96)
-                                .memoryCacheKey("pause_cast_$photoUrl")
-                                .crossfade(true)
-                                .build()
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val photoUrl = member.photo?.takeIf { it.isNotBlank() }
+                        if (photoUrl != null) {
+                            val request = remember(context, photoUrl) {
+                                ImageRequest.Builder(context)
+                                    .data(photoUrl)
+                                    .size(96, 96)
+                                    .memoryCacheKey("pause_cast_$photoUrl")
+                                    .crossfade(true)
+                                    .build()
+                            }
+                            AsyncImage(
+                                model = request,
+                                contentDescription = member.name,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            val initials = member.name
+                                .split(" ")
+                                .mapNotNull { it.firstOrNull()?.uppercaseChar() }
+                                .take(2)
+                                .joinToString("")
+                            Text(
+                                text = initials.ifBlank { "?" },
+                                color = Color.White.copy(alpha = 0.78f),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
-                        AsyncImage(
-                            model = request,
-                            contentDescription = member.name,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        val initials = member.name
-                            .split(" ")
-                            .mapNotNull { it.firstOrNull()?.uppercaseChar() }
-                            .take(2)
-                            .joinToString("")
-                        Text(
-                            text = initials.ifBlank { "?" },
-                            color = Color.White.copy(alpha = 0.78f),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
                     }
-                }
 
-                Column(
-                    modifier = Modifier.widthIn(max = 136.dp),
-                    verticalArrangement = Arrangement.spacedBy(1.dp)
-                ) {
-                    Text(
-                        text = member.name,
-                        color = Color.White.copy(alpha = 0.94f),
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    val role = member.character?.takeIf { it.isNotBlank() }
-                    if (role != null) {
+                    Column(
+                        modifier = Modifier.widthIn(max = 148.dp),
+                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                    ) {
                         Text(
-                            text = role,
-                            color = Color.White.copy(alpha = 0.62f),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Normal,
+                            text = member.name,
+                            color = Color.White.copy(alpha = 0.94f),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        val role = member.character?.takeIf { it.isNotBlank() }
+                        if (role != null) {
+                            Text(
+                                text = role,
+                                color = Color.White.copy(alpha = 0.62f),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
+            }
+        }
+    ) { measurables, constraints ->
+        val gapPx = 12.dp.roundToPx()
+        val itemConstraints = constraints.copy(minWidth = 0, minHeight = 0)
+        val placed = mutableListOf<Pair<androidx.compose.ui.layout.Placeable, Int>>()
+        var x = 0
+        var maxHeight = 0
+        for (measurable in measurables) {
+            val placeable = measurable.measure(itemConstraints)
+            val nextX = if (placed.isEmpty()) placeable.width else x + gapPx + placeable.width
+            if (nextX > constraints.maxWidth && placed.isNotEmpty()) break
+            val startX = if (placed.isEmpty()) 0 else x + gapPx
+            placed.add(placeable to startX)
+            x = startX + placeable.width
+            if (placeable.height > maxHeight) maxHeight = placeable.height
+        }
+        layout(constraints.maxWidth, maxHeight) {
+            placed.forEach { (placeable, posX) ->
+                placeable.placeRelative(posX, (maxHeight - placeable.height) / 2)
             }
         }
     }

@@ -219,6 +219,45 @@ class MDBListRepository internal constructor(
         return ratingsLoader.getRatings(ref.provider, ref.mediaType, ref.id, credential)?.letterboxd
     }
 
+    suspend fun getAllRatingsForItem(itemId: String, itemType: String): MDBListRatings? {
+        val settings = settingsDataStore.settings.first()
+        if (!settings.enabled) return null
+        val credential = api.credential(settings.apiKey) ?: return null
+
+        val mediaType = normalizeMediaType(itemType)
+        val ref = resolveMediaRef(
+            meta = Meta(
+                id = itemId,
+                type = when (mediaType) {
+                    "show" -> com.nuvio.tv.domain.model.ContentType.SERIES
+                    else -> com.nuvio.tv.domain.model.ContentType.MOVIE
+                },
+                name = itemId,
+                poster = null,
+                posterShape = com.nuvio.tv.domain.model.PosterShape.POSTER,
+                background = null,
+                logo = null,
+                description = null,
+                releaseInfo = null,
+                imdbRating = null,
+                genres = emptyList(),
+                runtime = null,
+                director = emptyList(),
+                cast = emptyList(),
+                videos = emptyList(),
+                country = null,
+                awards = null,
+                language = null,
+                links = emptyList()
+            ),
+            fallbackItemId = itemId,
+            fallbackItemType = itemType,
+            mediaType = mediaType
+        ) ?: return null
+
+        return ratingsLoader.getRatings(ref.provider, ref.mediaType, ref.id, credential)
+    }
+
     suspend fun getRatingsForMeta(
         meta: Meta,
         fallbackItemId: String,

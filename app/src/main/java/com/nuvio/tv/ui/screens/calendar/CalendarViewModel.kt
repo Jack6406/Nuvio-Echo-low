@@ -93,7 +93,7 @@ class CalendarViewModel @Inject constructor(
             dated.sortWith(compareBy<CalendarEntry> { it.date }.thenBy { it.show.title.lowercase() })
             undated.sortWith(compareBy<CalendarEntry> { it.show.status.ordinal }.thenBy { it.show.title.lowercase() })
             return CalendarUiState(
-                entries = dated + undated,
+                entries = dated,
                 byDate = dated.groupBy { it.date!! },
                 dated = dated.size,
                 followed = snapshot.followed,

@@ -373,6 +373,7 @@ fun LibraryScreen(
             is LibraryOverlay.TitleOptions -> BinPillMenu(
                 anchor = current.anchor,
                 title = current.title.entry.name,
+                posterUrl = current.title.preview.poster,
                 items = listOf(
                     BinMenuItem(stringResource(R.string.bins_title_open)) {
                         dismissOverlay(null)

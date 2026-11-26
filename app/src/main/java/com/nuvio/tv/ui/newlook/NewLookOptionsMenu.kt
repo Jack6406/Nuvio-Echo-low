@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
@@ -82,33 +83,44 @@ internal fun NewLookOptionsMenu(
     ) Color(0xFF0A0C10) else Color.White
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        val glassFill = Brush.verticalGradient(
+            listOf(
+                Color(0xD8151A24),
+                Color(0xE00B0E14),
+                Color(0xE6090C12)
+            )
+        )
+        val glassBorder = Brush.linearGradient(
+            listOf(
+                accent.copy(alpha = 0.85f),
+                Color.White.copy(alpha = 0.30f),
+                accent.copy(alpha = 0.55f)
+            )
+        )
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.52f)),
+                .background(Color.Black.copy(alpha = 0.48f)),
             contentAlignment = Alignment.Center
         ) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.Top
             ) {
-                // Left: Nuvio-Legacy glass preview card
+                // Left: Compact frosted glass preview card with dynamic artwork border
                 if (image != null) {
                     val context = LocalContext.current
                     Column(
                         modifier = Modifier
-                            .width(300.dp)
+                            .width(248.dp)
                             .clip(CardShape)
-                            .background(GlassBg)
-                            .border(1.dp, accent.copy(alpha = 0.65f), CardShape)
-                            .padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                            .background(glassFill)
+                            .border(1.dp, glassBorder, CardShape)
                     ) {
                         Box(
                             Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(16f / 9f)
-                                .clip(RoundedCornerShape(14.dp))
                         ) {
                             AsyncImage(
                                 model = remember(image) { ImageRequest.Builder(context).data(image).build() },
@@ -119,26 +131,29 @@ internal fun NewLookOptionsMenu(
                             Box(
                                 Modifier
                                     .fillMaxSize()
-                                    .background(Brush.verticalGradient(0.55f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.45f)))
+                                    .background(Brush.verticalGradient(0.50f to Color.Transparent, 1f to Color(0xCC0A0D14)))
                             )
                         }
                         Column(
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xCC0B0E15))
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Text(
                                 text = title,
                                 color = Color.White,
-                                fontSize = 16.sp,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
-                                maxLines = 2,
+                                maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             if (!subtitle.isNullOrBlank()) {
                                 Text(
                                     text = subtitle,
                                     color = MutedText,
-                                    fontSize = 12.sp,
+                                    fontSize = 11.sp,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -147,26 +162,26 @@ internal fun NewLookOptionsMenu(
                     }
                 }
 
-                // Right: Nuvio-Legacy sleek floating glass action menu
+                // Right: Compact frosted glass action menu
                 Column(
                     modifier = Modifier
-                        .width(276.dp)
+                        .width(236.dp)
                         .clip(CardShape)
-                        .background(GlassBg)
-                        .border(0.8.dp, Color.White.copy(alpha = 0.22f), CardShape)
+                        .background(glassFill)
+                        .border(1.dp, glassBorder, CardShape)
                         .ignoreHeldSelect()
                         .focusGroup()
-                        .padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                        .padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
                     Text(
                         text = title,
-                        color = Color.White.copy(alpha = 0.72f),
-                        fontSize = 12.5.sp,
+                        color = Color.White.copy(alpha = 0.80f),
+                        fontSize = 11.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
                     )
                     val requesters = remember(contentKey, options.size) { List(options.size) { FocusRequester() } }
                     LaunchedEffect(contentKey, options.size) {
@@ -209,12 +224,14 @@ private fun OptionPill(
 ) {
     var focused by remember { mutableStateOf(false) }
     val fg = if (focused) accentContent else Color.White.copy(alpha = 0.90f)
+    val isDestructive = option.label.lowercase().let { "remove" in it || "delete" in it || "hide" in it }
+    val focusFill = Brush.horizontalGradient(listOf(accent, accent.copy(alpha = 0.82f)))
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(38.dp)
+            .height(33.dp)
             .clip(PillShape)
-            .background(if (focused) accent else Color.Transparent)
+            .then(if (focused) Modifier.background(focusFill) else Modifier.background(Color.Transparent))
             .border(
                 width = if (focused) 1.dp else 0.dp,
                 color = if (focused) Color.White.copy(alpha = 0.65f) else Color.Transparent,
@@ -224,27 +241,34 @@ private fun OptionPill(
                 if (option.enabled) option.onClick()
             })
             .alpha(if (option.enabled) 1f else 0.4f)
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
     ) {
-        Icon(optionIconFor(option.label), contentDescription = null, tint = fg, modifier = Modifier.size(17.dp))
+        Icon(optionIconFor(option.label), contentDescription = null, tint = fg, modifier = Modifier.size(15.dp))
         Text(
             text = option.label,
             color = fg,
-            fontSize = 13.5.sp,
+            fontSize = 12.5.sp,
             fontWeight = if (focused) FontWeight.Bold else FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
         if (option.checked) {
-            Text("✓", color = fg, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text("✓", color = fg, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        } else if (!isDestructive) {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = fg.copy(alpha = if (focused) 0.9f else 0.45f),
+                modifier = Modifier.size(14.dp)
+            )
         }
     }
 }
 
-private val CardShape = RoundedCornerShape(20.dp)
+private val CardShape = RoundedCornerShape(16.dp)
 private val PillShape = RoundedCornerShape(999.dp)
 private val GlassBg = Color(0xFF141822).copy(alpha = 0.92f)
 private val MutedText = Color(0xFFB0B6C2)

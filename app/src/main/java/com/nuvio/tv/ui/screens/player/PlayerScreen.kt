@@ -1273,6 +1273,8 @@ private fun PlayerScreenContent(
             positionMs = pauseTimeline.currentPosition,
             durationMs = if (pauseTimeline.isLive) 0L else pauseTimeline.duration,
             showClock = !pauseTimeline.isLive,
+            mdbListRatings = uiState.mdbListRatings,
+            letterboxdRating = uiState.movieLetterboxdRating,
             modifier = Modifier
                 .fillMaxSize()
                 .zIndex(2.5f)
@@ -2499,8 +2501,15 @@ private fun PlayerControlsOverlay(
         )
 
         var showAccentPicker by remember { mutableStateOf(false) }
-        LaunchedEffect(uiState.backdrop) { updateActivePlaybackArtwork(uiState.backdrop) }
-        val playerAccentColor = rememberPlayerAccentColor(uiState.backdrop)
+        val customBackdrops by com.nuvio.tv.data.local.CustomBackdropStore.reactiveOverrides.collectAsState()
+        val resolvedPlayerArtwork = remember(uiState.backdrop, customBackdrops, viewModel.controller.contentId) {
+            val cid = viewModel.controller.contentId?.trim()
+            val override = cid?.let { customBackdrops[it] }
+                ?: com.nuvio.tv.data.local.CustomBackdropStore.getOverride(cid)
+            override ?: uiState.backdrop
+        }
+        LaunchedEffect(resolvedPlayerArtwork) { updateActivePlaybackArtwork(resolvedPlayerArtwork) }
+        val playerAccentColor = rememberPlayerAccentColor(resolvedPlayerArtwork)
 
         // Apple TV+ Top-Left Cinematic Header: Movie/Series ClearLogo + Episode Subtitle + Frosted Format Pills
         NuvioLegacyTopLeftBadges(
@@ -3323,45 +3332,45 @@ private fun PlayerClockOverlay(
                 color = Color.White.copy(alpha = 0.16f),
                 shape = RoundedCornerShape(999.dp)
             )
-            .padding(3.dp),
+            .padding(2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(999.dp))
                 .background(Color.White.copy(alpha = 0.14f))
-                .padding(horizontal = 11.dp, vertical = 4.dp),
+                .padding(horizontal = 8.dp, vertical = 2.5.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = timeFormatter.format(Date(nowMs)),
                 style = MaterialTheme.typography.bodyMedium.copy(
-                    fontSize = 12.sp,
+                    fontSize = 10.5.sp,
                     fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.2.sp
+                    letterSpacing = 0.15.sp
                 ),
                 color = Color.White
             )
         }
         if (!isLive) {
             Row(
-                modifier = Modifier.padding(start = 9.dp, end = 11.dp, top = 4.dp, bottom = 4.dp),
+                modifier = Modifier.padding(start = 7.dp, end = 9.dp, top = 2.5.dp, bottom = 2.5.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
                     text = "ENDS",
                     style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = 9.sp,
+                        fontSize = 8.sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.7.sp
+                        letterSpacing = 0.6.sp
                     ),
                     color = Color.White.copy(alpha = 0.48f)
                 )
                 Text(
                     text = endTimeText,
                     style = MaterialTheme.typography.bodyMedium.copy(
-                        fontSize = 12.sp,
+                        fontSize = 10.5.sp,
                         fontWeight = FontWeight.SemiBold
                     ),
                     color = Color.White.copy(alpha = 0.88f)
@@ -3968,12 +3977,22 @@ private fun SpeedSelectionDialog(
     onSpeedSelected: (Float) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val accent = rememberPlayerAccentColor()
+    val accentContent = if (
+        (accent.red * 0.299f + accent.green * 0.587f + accent.blue * 0.114f) > 0.60f
+    ) Color(0xFF0A0C10) else Color.White
+    val glassFill = Brush.verticalGradient(
+        listOf(Color(0xE6161B26), Color(0xEE0B0E15), Color(0xF2080B10))
+    )
+    val glassBorder = Brush.linearGradient(
+        listOf(accent.copy(alpha = 0.88f), Color.White.copy(alpha = 0.30f), accent.copy(alpha = 0.55f))
+    )
     val selectedIndex = remember(currentSpeed) {
         PLAYBACK_SPEEDS.indices.minByOrNull { index ->
             abs(PLAYBACK_SPEEDS[index] - currentSpeed)
         } ?: 0
     }
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = selectedIndex)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = 0)
     val speedFocusRequesters = remember {
         PLAYBACK_SPEEDS.map { FocusRequester() }
     }
@@ -3985,30 +4004,53 @@ private fun SpeedSelectionDialog(
     Dialog(onDismissRequest = onDismiss) {
         Box(
             modifier = Modifier
-                .width(300.dp)
-                .clip(RoundedCornerShape(NuvioTheme.radii.xl))
-                .background(NuvioTheme.colors.BackgroundElevated)
+                .width(244.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(glassFill)
+                .border(1.1.dp, glassBorder, RoundedCornerShape(18.dp))
         ) {
             Column(
-                modifier = Modifier.padding(NuvioTheme.spacing.xl)
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp)
             ) {
-                Text(
-                    text = stringResource(R.string.player_speed_title),
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = NuvioTheme.colors.TextPrimary,
-                    modifier = Modifier.padding(bottom = NuvioTheme.spacing.lg)
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    modifier = Modifier.padding(start = 4.dp, bottom = 10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Speed,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.92f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Box(
+                        Modifier
+                            .width(0.8.dp)
+                            .height(16.dp)
+                            .background(Color.White.copy(alpha = 0.24f))
+                    )
+                    Text(
+                        text = stringResource(R.string.player_speed_title),
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = Color.White
+                    )
+                }
 
                 LazyColumn(
                     state = listState,
-                    verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm),
-                    contentPadding = PaddingValues(top = NuvioTheme.spacing.xs)
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                    contentPadding = PaddingValues(vertical = 2.dp)
                 ) {
                     itemsIndexed(PLAYBACK_SPEEDS) { index, speed ->
                         SpeedItem(
                             modifier = Modifier.focusRequester(speedFocusRequesters[index]),
                             speed = speed,
                             isSelected = speed == currentSpeed,
+                            accent = accent,
+                            accentContent = accentContent,
                             onClick = { onSpeedSelected(speed) }
                         )
                     }
@@ -4092,9 +4134,13 @@ private fun SpeedItem(
     modifier: Modifier = Modifier,
     speed: Float,
     isSelected: Boolean,
+    accent: Color = Color(0xFFCFDCE8),
+    accentContent: Color = Color(0xFF0A0C10),
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val pillShape = RoundedCornerShape(999.dp)
+    val fg = if (isFocused) accentContent else Color.White.copy(alpha = if (isSelected) 1f else 0.86f)
 
     Card(
         onClick = onClick,
@@ -4102,30 +4148,44 @@ private fun SpeedItem(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
-            containerColor = if (isSelected) NuvioTheme.colors.Secondary.copy(alpha = 0.2f) else NuvioTheme.colors.BackgroundCard,
-            focusedContainerColor = NuvioTheme.colors.FocusBackground
+            containerColor = if (isSelected) accent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f),
+            focusedContainerColor = accent.copy(alpha = 1f)
         ),
-        shape = CardDefaults.shape(shape = RoundedCornerShape(NuvioTheme.radii.sm))
+        border = CardDefaults.border(
+            border = Border(
+                border = BorderStroke(0.7.dp, Color.White.copy(alpha = 0.14f)),
+                shape = pillShape
+            ),
+            focusedBorder = Border(
+                border = BorderStroke(1.2.dp, Color.White.copy(alpha = 0.85f)),
+                shape = pillShape
+            )
+        ),
+        scale = CardDefaults.scale(focusedScale = 1.02f),
+        shape = CardDefaults.shape(shape = pillShape)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(NuvioTheme.spacing.lg),
+                .padding(horizontal = 14.dp, vertical = 7.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = if (speed == 1f) stringResource(R.string.player_speed_normal) else "${speed}x",
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (isSelected) NuvioTheme.colors.Primary else NuvioTheme.colors.TextPrimary
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = 13.sp,
+                    fontWeight = if (isFocused || isSelected) FontWeight.Bold else FontWeight.Medium
+                ),
+                color = fg
             )
 
             if (isSelected) {
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = stringResource(R.string.cd_selected),
-                    tint = NuvioTheme.colors.Secondary,
-                    modifier = Modifier.size(NuvioTheme.spacing.xl)
+                    tint = if (isFocused) accentContent else accent,
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }
