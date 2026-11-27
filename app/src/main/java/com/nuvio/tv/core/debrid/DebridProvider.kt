@@ -37,7 +37,7 @@ object DebridProviders {
         id = TORBOX_ID,
         displayName = "Torbox",
         shortName = "TB",
-        authMethod = DebridProviderAuthMethod.DeviceCode,
+        authMethod = DebridProviderAuthMethod.ApiKey,
         capabilities = setOf(
             DebridProviderCapability.ClientResolve,
             DebridProviderCapability.LocalTorrentCacheCheck,

@@ -110,7 +110,16 @@ fun LibraryScreen(
     val state by binsViewModel.uiState.collectAsState()
     val message by binsViewModel.message.collectAsState()
     var tab by rememberSaveable { mutableStateOf(LibraryTab.Classic) }
-    var classicFilter by rememberSaveable { mutableStateOf(ClassicMediaFilter.ALL) }
+    val libContext = androidx.compose.ui.platform.LocalContext.current
+    val libPrefs = remember(libContext) {
+        libContext.applicationContext.getSharedPreferences("nuvio_library_prefs", android.content.Context.MODE_PRIVATE)
+    }
+    var classicFilter by rememberSaveable {
+        val saved = libPrefs.getString("classic_filter", null)
+        mutableStateOf(
+            ClassicMediaFilter.entries.firstOrNull { it.name == saved } ?: ClassicMediaFilter.ALL
+        )
+    }
     var selectedGenre by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedYear by rememberSaveable { mutableStateOf<String?>(null) }
     var overlay by remember { mutableStateOf<LibraryOverlay?>(null) }
@@ -239,7 +248,10 @@ fun LibraryScreen(
     val header: @Composable () -> Unit = {
         LibraryHeader(
             classicFilter = classicFilter,
-            onClassicFilter = { classicFilter = it },
+            onClassicFilter = {
+                classicFilter = it
+                libPrefs.edit().putString("classic_filter", it.name).apply()
+            },
             selectedGenre = selectedGenre,
             selectedYear = selectedYear,
             onClearFilters = {

@@ -248,6 +248,15 @@ fun AddonManagerScreen(
     }
 
     val addonListScope = rememberCoroutineScope()
+    var addonSearchQuery by remember { mutableStateOf("") }
+    val filteredInstalledAddons = remember(uiState.installedAddons, addonSearchQuery) {
+        val q = addonSearchQuery.trim()
+        if (q.isEmpty()) uiState.installedAddons
+        else uiState.installedAddons.filter {
+            it.displayName.contains(q, ignoreCase = true) ||
+                it.baseUrl.contains(q, ignoreCase = true)
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -444,16 +453,35 @@ fun AddonManagerScreen(
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(
-                        text = stringResource(R.string.addon_installed_section),
-                        style = MaterialTheme.typography.titleLarge.copy(textDirection = TextDirection.Content),
-                        color = NuvioTheme.colors.TextPrimary,
-                    )
-                    Spacer(modifier = Modifier.width(NuvioTheme.spacing.md))
-                    if (uiState.isLoading && uiState.installedAddons.isEmpty()) {
-                        LoadingIndicator(modifier = Modifier.height(NuvioTheme.spacing.xl))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = stringResource(R.string.addon_installed_section),
+                            style = MaterialTheme.typography.titleLarge.copy(textDirection = TextDirection.Content),
+                            color = NuvioTheme.colors.TextPrimary,
+                        )
+                        Spacer(modifier = Modifier.width(NuvioTheme.spacing.md))
+                        if (uiState.isLoading && uiState.installedAddons.isEmpty()) {
+                            LoadingIndicator(modifier = Modifier.height(NuvioTheme.spacing.xl))
+                        }
+                    }
+                    if (uiState.installedAddons.size > 3) {
+                        androidx.compose.material3.OutlinedTextField(
+                            value = addonSearchQuery,
+                            onValueChange = { addonSearchQuery = it },
+                            placeholder = {
+                                Text(
+                                    text = "Filter add-ons...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NuvioTheme.colors.TextTertiary
+                                )
+                            },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall.copy(color = NuvioTheme.colors.TextPrimary),
+                            modifier = Modifier.width(240.dp)
+                        )
                     }
                 }
             }
@@ -468,7 +496,7 @@ fun AddonManagerScreen(
                 }
             } else {
                 itemsIndexed(
-                    items = uiState.installedAddons,
+                    items = filteredInstalledAddons,
                     key = { _, addon -> addon.baseUrl }
                 ) { index, addon ->
                     val bringIntoViewRequester = remember { BringIntoViewRequester() }

@@ -300,7 +300,10 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
         if (level >= TRIM_MEMORY_RUNNING_CRITICAL || level >= TRIM_MEMORY_BACKGROUND) {
             runCatching { tmdbMetadataService.get().trimMemoryCaches() }
             runCatching { browseRepository.get().trimMemoryCache() }
-            runCatching { trailerPlayerPool.get().yield() }
+            // Only yield trailer decoders when the app is actually backgrounded or not actively playing
+            if (level >= TRIM_MEMORY_UI_HIDDEN || !trailerPlayerPool.get().isActivelyPlaying()) {
+                runCatching { trailerPlayerPool.get().yield() }
+            }
         }
     }
 

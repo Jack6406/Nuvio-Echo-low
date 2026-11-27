@@ -177,6 +177,7 @@ private suspend fun PlayerRuntimeController.readSkipFileEvidence(url: String, du
     if (currentStreamUrl != url) return
     val chapters = mpvChapters?.takeIf { it.isNotEmpty() } ?: read?.chapters.orEmpty()
     skipFileEvidence = SkipFileEvidence(url, chapters, read?.keyframesMs)
+    _uiState.update { it.copy(chapters = chapters) }
     Log.i(
         PlayerRuntimeController.TAG,
         "SKIP_FILE: ${chapters.size} chapters [${chapters.joinToString(" | ") { "${it.startMs / 1000}s ${it.title}" }}], " +

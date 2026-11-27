@@ -872,17 +872,10 @@ internal fun NewLookHomeContent(
     val highlightTrailerReady = false
     // Highlighted/Grand rows stay on the user's focused card instead of auto-advancing on a trailer timer.
 
-    // Back: to the start of the row, then up to the window; from the window Back opens the menu.
-    BackHandler(enabled = area == HomeArea.ROWS && focusedCard != null) {
-        val key = focusedRowKey ?: return@BackHandler
-        val col = cols[key] ?: 0
-        if (col > 0) {
-            val index = rows.indexOfFirst { it.key == key }
-            scope.launch { rowStates[key]?.scrollToItem(0) }
-            focusRow(index, 0)
-        } else {
-            focusHero(0)
-        }
+    // Back: when scrolled down in rows, jump smoothly straight back to the top Hero; from Hero Back opens the menu.
+    BackHandler(enabled = area == HomeArea.ROWS) {
+        scope.launch { listState.animateScrollToItem(0) }
+        focusHero(0)
     }
 
     // ---- Layout ----

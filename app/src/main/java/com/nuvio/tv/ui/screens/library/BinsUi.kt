@@ -258,12 +258,9 @@ internal fun BinPillMenu(
     val accentContent = if (
         (accent.red * 0.299f + accent.green * 0.587f + accent.blue * 0.114f) > 0.60f
     ) Color(0xFF0A0C10) else Color.White
-    val glassFill = Brush.verticalGradient(
-        listOf(Color(0xDE161B26), Color(0xE60B0E15), Color(0xEC090C12))
-    )
-    val glassBorder = Brush.linearGradient(
-        listOf(accent.copy(alpha = 0.88f), Color.White.copy(alpha = 0.28f), accent.copy(alpha = 0.55f))
-    )
+    val glass = com.nuvio.tv.ui.theme.rememberPopupGlassTokens(accent)
+    val glassFill = glass.fill
+    val glassBorder = glass.border
     val focusFill = Brush.horizontalGradient(listOf(accent, accent.copy(alpha = 0.82f)))
     val requesters = remember(items.size) { List(items.size) { FocusRequester() } }
     val scrollState = rememberScrollState()
@@ -374,7 +371,7 @@ internal fun BinPillMenu(
                     if (title != null) {
                         Text(
                             title,
-                            color = Color.White.copy(alpha = 0.88f),
+                            color = glass.secondaryText,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -390,7 +387,7 @@ internal fun BinPillMenu(
                     ) {
                         items.forEachIndexed { i, item ->
                             var focused by remember { mutableStateOf(false) }
-                            val fg = if (focused) accentContent else Color.White.copy(alpha = 0.90f)
+                            val fg = if (focused) accentContent else glass.primaryText.copy(alpha = 0.92f)
                             val lower = item.label.lowercase()
                             val rowIcon = when {
                                 "open" in lower || "play" in lower -> Icons.Filled.PlayArrow

@@ -75,6 +75,13 @@ class TrailerPlayerPool @Inject constructor(
      * Stops playback and clears media but keeps the instance alive for reuse.
      * Call this when the trailer is no longer visible (poster lost focus, screen change).
      */
+    fun isActivelyPlaying(): Boolean {
+        val p = _player ?: return false
+        return runCatching {
+            p.playWhenReady && (p.isPlaying || p.playbackState == Player.STATE_BUFFERING)
+        }.getOrDefault(false)
+    }
+
     fun stop() {
         _player?.let { player ->
             runCatching {
@@ -132,13 +139,13 @@ class TrailerPlayerPool @Inject constructor(
         Log.d(TAG, "Creating shared trailer ExoPlayer instance (is1GbMode=$is1GbMode, forceNative=$forceNative)")
         val loadControlBuilder = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ if (is1GbMode) 4_000 else 30_000,
-                /* maxBufferMs = */ if (is1GbMode) 12_000 else 120_000,
+                /* minBufferMs = */ if (is1GbMode) 8_000 else 30_000,
+                /* maxBufferMs = */ if (is1GbMode) 20_000 else 120_000,
                 /* bufferForPlaybackMs = */ if (is1GbMode) 1_500 else 5_000,
                 /* bufferForPlaybackAfterRebufferMs = */ if (is1GbMode) 3_000 else 10_000
             )
         if (is1GbMode) {
-            loadControlBuilder.setTargetBufferBytes(8 * 1024 * 1024)
+            loadControlBuilder.setTargetBufferBytes(12 * 1024 * 1024)
         }
         if (forceNative) {
             val allocator = DefaultAllocator(

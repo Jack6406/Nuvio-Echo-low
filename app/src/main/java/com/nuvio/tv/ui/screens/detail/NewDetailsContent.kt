@@ -1259,12 +1259,9 @@ private fun NdHero(
             }
             val ratingText = mdbListUserRating?.let { "MDBList ★ ${formatMdbScore(it)}/10" } ?: "Rate on MDBList"
             val menuStartPad = if (isSeries) 240.dp else 135.dp
-            val menuGlassFill = Brush.verticalGradient(
-                listOf(Color(0xE4161B26), Color(0xEC0B0E15), Color(0xF0080B10))
-            )
-            val menuGlassBorder = Brush.linearGradient(
-                listOf(heroAccent.copy(alpha = 0.85f), Color.White.copy(alpha = 0.28f), heroAccent.copy(alpha = 0.55f))
-            )
+            val menuGlass = com.nuvio.tv.ui.theme.rememberPopupGlassTokens(heroAccent)
+            val menuGlassFill = menuGlass.fill
+            val menuGlassBorder = menuGlass.border
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -1439,37 +1436,32 @@ private fun NdHero(
         }
 
         if (fullSynopsisDialogOpen && !meta.description.isNullOrBlank()) {
-            val synopsisGlassFill = Brush.verticalGradient(
-                listOf(Color(0xE0161B26), Color(0xEA0B0E15), Color(0xEE080B10))
-            )
-            val synopsisGlassBorder = Brush.linearGradient(
-                listOf(heroAccent.copy(alpha = 0.88f), Color.White.copy(alpha = 0.30f), heroAccent.copy(alpha = 0.58f))
-            )
+            val synopsisGlass = com.nuvio.tv.ui.theme.rememberPopupGlassTokens(heroAccent)
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .fillMaxWidth(0.58f)
                     .clip(RoundedCornerShape(18.dp))
-                    .background(synopsisGlassFill)
-                    .border(1.1.dp, synopsisGlassBorder, RoundedCornerShape(18.dp))
+                    .background(synopsisGlass.fill)
+                    .border(1.1.dp, synopsisGlass.border, RoundedCornerShape(18.dp))
                     .padding(horizontal = 20.dp, vertical = 18.dp)
                     .zIndex(12f)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(meta.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(meta.name, color = synopsisGlass.primaryText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(1.dp)
                             .background(
                                 Brush.horizontalGradient(
-                                    listOf(heroAccent.copy(alpha = 0.80f), Color.White.copy(alpha = 0.16f), Color.Transparent)
+                                    listOf(heroAccent.copy(alpha = 0.80f), synopsisGlass.divider, Color.Transparent)
                                 )
                             )
                     )
                     Text(
                         meta.description.orEmpty(),
-                        color = Color.White.copy(alpha = 0.92f),
+                        color = synopsisGlass.primaryText.copy(alpha = 0.92f),
                         fontSize = 13.5.sp,
                         lineHeight = 20.sp
                     )
@@ -1482,14 +1474,14 @@ private fun NdHero(
                             modifier = Modifier
                                 .size(26.dp)
                                 .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.12f))
-                                .border(0.8.dp, Color.White.copy(alpha = 0.30f), CircleShape),
+                                .background(synopsisGlass.badgeBg)
+                                .border(0.8.dp, synopsisGlass.divider, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.90f),
+                                tint = synopsisGlass.primaryText.copy(alpha = 0.90f),
                                 modifier = Modifier.size(14.dp)
                             )
                         }
@@ -1497,11 +1489,11 @@ private fun NdHero(
                             Modifier
                                 .width(0.8.dp)
                                 .height(16.dp)
-                                .background(Color.White.copy(alpha = 0.24f))
+                                .background(synopsisGlass.divider)
                         )
                         Text(
                             "Press Back to close",
-                            color = Color.White.copy(alpha = 0.72f),
+                            color = synopsisGlass.secondaryText,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
                         )
@@ -2454,11 +2446,12 @@ private fun NdLegacyPopupRow(
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null
 ) {
+    val rowGlass = com.nuvio.tv.ui.theme.rememberPopupGlassTokens(accent)
     var focused by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(36.dp)
+            .height(34.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(if (focused) accent else Color.Transparent)
             .ndClickable(
@@ -2471,10 +2464,10 @@ private fun NdLegacyPopupRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Icon(icon, null, tint = if (focused) accentText else Color.White.copy(alpha = 0.85f), modifier = Modifier.size(17.dp))
+        Icon(icon, null, tint = if (focused) accentText else rowGlass.primaryText.copy(alpha = 0.85f), modifier = Modifier.size(17.dp))
         Text(
             text = label,
-            color = if (focused) accentText else Color.White.copy(alpha = 0.92f),
+            color = if (focused) accentText else rowGlass.primaryText.copy(alpha = 0.92f),
             fontSize = 13.sp,
             fontWeight = if (focused) FontWeight.Bold else FontWeight.Medium,
             maxLines = 1,

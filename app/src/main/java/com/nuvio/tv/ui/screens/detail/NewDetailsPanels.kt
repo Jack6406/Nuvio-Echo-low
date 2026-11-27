@@ -597,12 +597,9 @@ internal fun PlayOptionsMenu(
     val accentContent = if (
         (accent.red * 0.299f + accent.green * 0.587f + accent.blue * 0.114f) > 0.60f
     ) Color(0xFF0A0C10) else Color.White
-    val glassFill = Brush.verticalGradient(
-        listOf(Color(0xE6161B26), Color(0xEE0B0E15), Color(0xF2080B10))
-    )
-    val glassBorder = Brush.linearGradient(
-        listOf(accent.copy(alpha = 0.88f), Color.White.copy(alpha = 0.28f), accent.copy(alpha = 0.55f))
-    )
+    val glass = com.nuvio.tv.ui.theme.rememberPopupGlassTokens(accent)
+    val glassFill = glass.fill
+    val glassBorder = glass.border
     BackHandler { onDismiss() }
     LaunchedEffect(Unit) {
         repeat(5) {
@@ -627,7 +624,7 @@ internal fun PlayOptionsMenu(
     ) {
         Text(
             title,
-            color = Color.White.copy(alpha = 0.86f),
+            color = glass.secondaryText,
             fontSize = 11.5.sp,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
@@ -641,6 +638,7 @@ internal fun PlayOptionsMenu(
             onClick = onPlayManually,
             accent = accent,
             accentContent = accentContent,
+            unfocusedColor = glass.primaryText,
             showDivider = true
         ) { c ->
             Icon(Icons.Filled.PlayArrow, null, tint = c, modifier = Modifier.size(15.dp))
@@ -653,6 +651,7 @@ internal fun PlayOptionsMenu(
                 onClick = onFromStart,
                 accent = accent,
                 accentContent = accentContent,
+                unfocusedColor = glass.primaryText,
                 showDivider = true
             ) { c ->
                 Icon(Icons.Filled.Replay, null, tint = c, modifier = Modifier.size(15.dp))
@@ -881,11 +880,12 @@ private fun HoldItem(
     onClick: () -> Unit,
     accent: Color? = null,
     accentContent: Color = Color.White,
+    unfocusedColor: Color = Color.White,
     showDivider: Boolean = false,
     icon: @Composable (Color) -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    val fg = if (focused && accent != null) accentContent else Color.White.copy(alpha = if (focused) 1f else 0.90f)
+    val fg = if (focused && accent != null) accentContent else unfocusedColor.copy(alpha = if (focused) 1f else 0.92f)
     val pillModifier = if (focused && accent != null) {
         Modifier
             .clip(NdPill)

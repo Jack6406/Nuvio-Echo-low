@@ -52,7 +52,11 @@ import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_EDGE_COVERAGE
 import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_EDGE_STRENGTH
 import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_SHEEN_STRENGTH
 import com.nuvio.tv.ui.components.NuvioDialog
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.platform.LocalContext
 import com.nuvio.tv.ui.components.cardDepthVisual
+import com.nuvio.tv.ui.theme.PopupGlassMode
+import com.nuvio.tv.ui.theme.PopupGlassStyleStore
 
 @Composable
 internal fun LayoutContinueWatchingSection(
@@ -155,7 +159,17 @@ internal fun LayoutCardDepthSection(
     uiState: LayoutSettingsUiState,
     onEvent: (LayoutSettingsEvent) -> Unit
 ) {
+    val context = LocalContext.current
+    remember(context) { PopupGlassStyleStore.ensureLoaded(context) }
+    val glassMode by PopupGlassStyleStore.mode.collectAsState()
     var showFineTuneDialog by rememberSaveable { mutableStateOf(false) }
+
+    SettingsActionRow(
+        title = "Popup Glass Style",
+        subtitle = "Choose Dark Frosted, White Frosted, or Transparent glass for menus and dialogs",
+        value = glassMode.label,
+        onClick = { PopupGlassStyleStore.setMode(context, glassMode.next()) }
+    )
 
     CardDepthStyleControls(
         style = uiState.cardDepthStyle,

@@ -873,6 +873,23 @@ private fun PlaybackNavHost(
             }
 
             PlayerScreen(
+                onOpenCurrentDetails = {
+                    val args = backStackEntry.arguments
+                    val contentId = args?.getString("contentId").orEmpty()
+                    val contentType = args?.getString("contentType").orEmpty()
+                    if (contentId.isNotBlank()) {
+                        navController.navigate(
+                            Screen.Detail.createRoute(
+                                itemId = contentId,
+                                itemType = contentType.ifBlank { "movie" },
+                                addonBaseUrl = null,
+                                heroBackdropUrl = args?.getString("backdrop")
+                            )
+                        ) {
+                            launchSingleTop = true
+                        }
+                    }
+                },
                 onBackPress = { currentVideoId, currentSeason, currentEpisode, autoPlayEnabled, playbackCompleted ->
                     val args = backStackEntry.arguments
                     val initialSeason = args?.getString("season")?.toIntOrNull()

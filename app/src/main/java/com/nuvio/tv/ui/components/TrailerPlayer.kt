@@ -30,6 +30,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MergingMediaSource
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import com.nuvio.tv.core.player.LetterboxDetector
 import com.nuvio.tv.core.player.LetterboxSampler
 import com.nuvio.tv.core.player.LetterboxTracker
@@ -75,6 +76,7 @@ private fun ExoPlayer.loadTrailer(videoUrl: String, audioUrl: String?, muted: Bo
         return
     }
     val factory = DefaultMediaSourceFactory(YoutubeChunkedDataSourceFactory())
+        .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(6))
     val video = factory.createMediaSource(MediaItem.fromUri(videoUrl))
     setMediaSource(
         if (plan == TrailerSourcePlan.CHUNKED_VIDEO_ONLY) video
@@ -250,9 +252,13 @@ fun TrailerPlayer(
 
     DisposableEffect(activityLifecycleOwner, trailerPlayer) {
         val player = trailerPlayer ?: return@DisposableEffect onDispose {}
+        var retryCount = 0
+        var lastGoodPositionMs = 0L
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_ENDED) {
+                if (playbackState == Player.STATE_READY) {
+                    retryCount = 0
+                } else if (playbackState == Player.STATE_ENDED) {
                     currentOnEnded()
                 }
             }
@@ -262,9 +268,21 @@ fun TrailerPlayer(
                 currentOnFirstFrameRendered()
             }
 
-            // Without this a trailer that fails just never shows; the code says why (no URL is logged).
+            // Recover from transient YouTube chunk/network hiccups instead of stopping silently after a few seconds.
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                Log.w(TAG, "Trailer playback failed: ${error.errorCodeName} (videoLayer=$surfaceView, muted=$currentMuted)")
+                Log.w(TAG, "Trailer playback error (${retryCount + 1}/2): ${error.errorCodeName} (videoLayer=$surfaceView, muted=$currentMuted)")
+                val url = currentTrailerUrl
+                if (currentIsPlaying && !url.isNullOrBlank() && retryCount < 2) {
+                    retryCount += 1
+                    val resumeMs = player.currentPosition.coerceAtLeast(lastGoodPositionMs)
+                    lastGoodPositionMs = resumeMs
+                    runCatching {
+                        player.loadTrailer(url, currentTrailerAudioUrl, currentMuted)
+                        if (resumeMs > 1_000L) player.seekTo(resumeMs)
+                        player.prepare()
+                        player.playWhenReady = true
+                    }
+                }
             }
         }
         val observer = LifecycleEventObserver { _, event ->

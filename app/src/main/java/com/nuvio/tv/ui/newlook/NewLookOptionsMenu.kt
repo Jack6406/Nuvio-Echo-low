@@ -83,20 +83,9 @@ internal fun NewLookOptionsMenu(
     ) Color(0xFF0A0C10) else Color.White
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        val glassFill = Brush.verticalGradient(
-            listOf(
-                Color(0xD8151A24),
-                Color(0xE00B0E14),
-                Color(0xE6090C12)
-            )
-        )
-        val glassBorder = Brush.linearGradient(
-            listOf(
-                accent.copy(alpha = 0.85f),
-                Color.White.copy(alpha = 0.30f),
-                accent.copy(alpha = 0.55f)
-            )
-        )
+        val glass = com.nuvio.tv.ui.theme.rememberPopupGlassTokens(accent)
+        val glassFill = glass.fill
+        val glassBorder = glass.border
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -137,13 +126,13 @@ internal fun NewLookOptionsMenu(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(Color(0xCC0B0E15))
+                                .background(glass.captionBg)
                                 .padding(horizontal = 12.dp, vertical = 9.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Text(
                                 text = title,
-                                color = Color.White,
+                                color = glass.primaryText,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
@@ -152,7 +141,7 @@ internal fun NewLookOptionsMenu(
                             if (!subtitle.isNullOrBlank()) {
                                 Text(
                                     text = subtitle,
-                                    color = MutedText,
+                                    color = glass.secondaryText,
                                     fontSize = 11.sp,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
@@ -176,7 +165,7 @@ internal fun NewLookOptionsMenu(
                 ) {
                     Text(
                         text = title,
-                        color = Color.White.copy(alpha = 0.80f),
+                        color = glass.secondaryText,
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
@@ -193,7 +182,7 @@ internal fun NewLookOptionsMenu(
                         }
                     }
                     options.forEachIndexed { i, option ->
-                        OptionPill(option, requesters[i], accent, accentContent)
+                        OptionPill(option, requesters[i], accent, accentContent, glass.primaryText)
                     }
                 }
             }
@@ -220,10 +209,11 @@ private fun OptionPill(
     option: NewLookOption,
     requester: FocusRequester,
     accent: Color,
-    accentContent: Color
+    accentContent: Color,
+    unfocusedFg: Color = Color.White
 ) {
     var focused by remember { mutableStateOf(false) }
-    val fg = if (focused) accentContent else Color.White.copy(alpha = 0.90f)
+    val fg = if (focused) accentContent else unfocusedFg.copy(alpha = 0.92f)
     val isDestructive = option.label.lowercase().let { "remove" in it || "delete" in it || "hide" in it }
     val focusFill = Brush.horizontalGradient(listOf(accent, accent.copy(alpha = 0.82f)))
     Row(

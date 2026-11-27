@@ -60,7 +60,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -199,9 +202,10 @@ fun PlayerScreen(
     onPlaybackErrorBack: () -> Unit = { onBackPress(null, null, null, false, false) },
     onPlaybackEnded: ((nextVideoId: String?, nextSeason: Int?, nextEpisode: Int?, exitReason: PlayerExitReason?) -> Unit)? = null,
     onPlayRecommendation: (PostPlayRecommendation, manualSelection: Boolean) -> Unit = { _, _ -> },
-    onOpenRecommendationDetails: (PostPlayRecommendation) -> Unit = {}
+    onOpenRecommendationDetails: (PostPlayRecommendation) -> Unit = {},
+    onOpenCurrentDetails: (() -> Unit)? = null
 ) = PlayerGlassTheme {
-    PlayerScreenContent(viewModel, onBackPress, onPlaybackErrorBack, onPlaybackEnded, onPlayRecommendation, onOpenRecommendationDetails)
+    PlayerScreenContent(viewModel, onBackPress, onPlaybackErrorBack, onPlaybackEnded, onPlayRecommendation, onOpenRecommendationDetails, onOpenCurrentDetails)
 }
 
 @Composable
@@ -211,7 +215,8 @@ private fun PlayerScreenContent(
     onPlaybackErrorBack: () -> Unit,
     onPlaybackEnded: ((nextVideoId: String?, nextSeason: Int?, nextEpisode: Int?, exitReason: PlayerExitReason?) -> Unit)?,
     onPlayRecommendation: (PostPlayRecommendation, manualSelection: Boolean) -> Unit,
-    onOpenRecommendationDetails: (PostPlayRecommendation) -> Unit
+    onOpenRecommendationDetails: (PostPlayRecommendation) -> Unit,
+    onOpenCurrentDetails: (() -> Unit)? = null
 ) {
     val rawUiState = viewModel.uiState.collectAsState()
     // A quality or audio picked in the player loads under the controls (the last frame held, a streak
@@ -243,6 +248,7 @@ private fun PlayerScreenContent(
     var skipButtonActuallyVisible by remember { mutableStateOf(false) }
     var restoreStreamInfoFocus by remember { mutableStateOf(false) }
     var showVisualEnhancerOverlay by remember { mutableStateOf(false) }
+    var showChaptersDialog by remember { mutableStateOf(false) }
     var visualEnhancerMode by remember(context) { mutableStateOf(VisualEnhancerPreferences.getInitialMode(context)) }
     var visualEnhancerPreviewMode by remember { mutableStateOf<VisualEnhancerMode?>(null) }
     var visualEnhancerApplyToAll by remember(context) { mutableStateOf(VisualEnhancerPreferences.isApplyToAll(context)) }
@@ -1603,6 +1609,19 @@ private fun PlayerScreenContent(
                         }
                     }
                 },
+                onShowChapters = {
+                    viewModel.onEvent(PlayerEvent.OnHideControls)
+                    showChaptersDialog = true
+                },
+                onOpenDetails = onOpenCurrentDetails?.let { openDetails ->
+                    {
+                        if (uiState.isPlaying) {
+                            viewModel.onEvent(PlayerEvent.OnPlayPause)
+                        }
+                        viewModel.onEvent(PlayerEvent.OnHideControls)
+                        openDetails()
+                    }
+                },
                 onShowStreamInfo = {
                     restoreStreamInfoFocus = true
                     viewModel.onEvent(PlayerEvent.OnShowStreamInfo)
@@ -1994,6 +2013,18 @@ private fun PlayerScreenContent(
                 currentSpeed = uiState.playbackSpeed,
                 onSpeedSelected = { viewModel.onEvent(PlayerEvent.OnSetPlaybackSpeed(it)) },
                 onDismiss = { viewModel.onEvent(PlayerEvent.OnDismissTransientOverlay) }
+            )
+        }
+
+        if (showChaptersDialog && uiState.chapters.isNotEmpty()) {
+            ChaptersSelectionDialog(
+                chapters = uiState.chapters,
+                currentPositionMs = viewModel.playbackTimeline.collectAsState().value.currentPosition,
+                onChapterSelected = { chapter ->
+                    showChaptersDialog = false
+                    viewModel.onEvent(PlayerEvent.OnSeekTo(chapter.startMs))
+                },
+                onDismiss = { showChaptersDialog = false }
             )
         }
     }
@@ -2444,6 +2475,8 @@ private fun PlayerControlsOverlay(
     onReportPlaybackIssue: () -> Unit,
     onToggleMoreActions: () -> Unit,
     onOpenInExternalPlayer: () -> Unit,
+    onShowChapters: () -> Unit = {},
+    onOpenDetails: (() -> Unit)? = null,
     onShowStreamInfo: () -> Unit,
     onShowVisualEnhancer: () -> Unit = {},
     visualEnhancerActive: Boolean = false,
@@ -2707,6 +2740,30 @@ private fun PlayerControlsOverlay(
                         onDownKey = onHideControls,
                         onFocused = onResetHideTimer
                     )
+
+                    if (uiState.chapters.isNotEmpty()) {
+                        NuvioLegacyCircleIconButton(
+                            icon = Icons.AutoMirrored.Filled.List,
+                            contentDescription = "Chapters",
+                            accentColor = playerAccentColor,
+                            onClick = onShowChapters,
+                            upFocusRequester = progressUpTarget,
+                            onDownKey = onHideControls,
+                            onFocused = onResetHideTimer
+                        )
+                    }
+
+                    if (onOpenDetails != null) {
+                        NuvioLegacyCircleIconButton(
+                            icon = Icons.Default.Movie,
+                            contentDescription = "Details",
+                            accentColor = playerAccentColor,
+                            onClick = onOpenDetails,
+                            upFocusRequester = progressUpTarget,
+                            onDownKey = onHideControls,
+                            onFocused = onResetHideTimer
+                        )
+                    }
 
                     NuvioLegacyCircleIconButton(
                         icon = Icons.Default.Info,
@@ -3981,12 +4038,9 @@ private fun SpeedSelectionDialog(
     val accentContent = if (
         (accent.red * 0.299f + accent.green * 0.587f + accent.blue * 0.114f) > 0.60f
     ) Color(0xFF0A0C10) else Color.White
-    val glassFill = Brush.verticalGradient(
-        listOf(Color(0xE6161B26), Color(0xEE0B0E15), Color(0xF2080B10))
-    )
-    val glassBorder = Brush.linearGradient(
-        listOf(accent.copy(alpha = 0.88f), Color.White.copy(alpha = 0.30f), accent.copy(alpha = 0.55f))
-    )
+    val glass = com.nuvio.tv.ui.theme.rememberPopupGlassTokens(accent)
+    val glassFill = glass.fill
+    val glassBorder = glass.border
     val selectedIndex = remember(currentSpeed) {
         PLAYBACK_SPEEDS.indices.minByOrNull { index ->
             abs(PLAYBACK_SPEEDS[index] - currentSpeed)
@@ -4020,14 +4074,14 @@ private fun SpeedSelectionDialog(
                     Icon(
                         imageVector = Icons.Default.Speed,
                         contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.92f),
+                        tint = glass.primaryText.copy(alpha = 0.92f),
                         modifier = Modifier.size(18.dp)
                     )
                     Box(
                         Modifier
                             .width(0.8.dp)
                             .height(16.dp)
-                            .background(Color.White.copy(alpha = 0.24f))
+                            .background(glass.divider)
                     )
                     Text(
                         text = stringResource(R.string.player_speed_title),
@@ -4035,7 +4089,7 @@ private fun SpeedSelectionDialog(
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold
                         ),
-                        color = Color.White
+                        color = glass.primaryText
                     )
                 }
 
@@ -4051,8 +4105,121 @@ private fun SpeedSelectionDialog(
                             isSelected = speed == currentSpeed,
                             accent = accent,
                             accentContent = accentContent,
+                            unfocusedText = glass.primaryText,
+                            unfocusedBg = glass.itemUnfocusedBg,
                             onClick = { onSpeedSelected(speed) }
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChaptersSelectionDialog(
+    chapters: List<com.nuvio.tv.core.player.seekpreview.MediaChapter>,
+    currentPositionMs: Long,
+    onChapterSelected: (com.nuvio.tv.core.player.seekpreview.MediaChapter) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val accent = rememberPlayerAccentColor()
+    val accentContent = if (
+        (accent.red * 0.299f + accent.green * 0.587f + accent.blue * 0.114f) > 0.60f
+    ) Color(0xFF0A0C10) else Color.White
+    val glass = com.nuvio.tv.ui.theme.rememberPopupGlassTokens(accent)
+    val activeIndex = remember(chapters, currentPositionMs) {
+        chapters.indexOfLast { it.startMs <= currentPositionMs }.coerceAtLeast(0)
+    }
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = (activeIndex - 2).coerceAtLeast(0))
+    val requesters = remember(chapters.size) { List(chapters.size) { FocusRequester() } }
+    LaunchedEffect(activeIndex) {
+        runCatching { requesters.getOrNull(activeIndex)?.requestFocus() }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .width(340.dp)
+                .heightIn(max = 380.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(glass.fill)
+                .border(1.1.dp, glass.border, RoundedCornerShape(18.dp))
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    modifier = Modifier.padding(start = 4.dp, bottom = 10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.List,
+                        contentDescription = null,
+                        tint = glass.primaryText.copy(alpha = 0.92f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Box(Modifier.width(0.8.dp).height(16.dp).background(glass.divider))
+                    Text(
+                        text = "Chapters",
+                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
+                        color = glass.primaryText
+                    )
+                }
+                LazyColumn(
+                    state = listState,
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                    contentPadding = PaddingValues(vertical = 2.dp)
+                ) {
+                    itemsIndexed(chapters) { index, chapter ->
+                        var isFocused by remember { mutableStateOf(false) }
+                        val isCurrent = index == activeIndex
+                        val pillShape = RoundedCornerShape(12.dp)
+                        val fg = if (isFocused) accentContent else glass.primaryText.copy(alpha = if (isCurrent) 1f else 0.88f)
+                        val totalSecs = (chapter.startMs / 1000L).coerceAtLeast(0L)
+                        val hrs = totalSecs / 3600L
+                        val mins = (totalSecs % 3600L) / 60L
+                        val secs = totalSecs % 60L
+                        val ts = if (hrs > 0L) "%d:%02d:%02d".format(hrs, mins, secs) else "%d:%02d".format(mins, secs)
+                        val chapterTitle = chapter.title.ifBlank { "Chapter ${index + 1}" }
+                        Card(
+                            onClick = { onChapterSelected(chapter) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(requesters[index])
+                                .onFocusChanged { isFocused = it.isFocused },
+                            colors = CardDefaults.colors(
+                                containerColor = if (isCurrent) accent.copy(alpha = 0.24f) else glass.itemUnfocusedBg,
+                                focusedContainerColor = accent.copy(alpha = 1f)
+                            ),
+                            border = CardDefaults.border(
+                                border = Border(BorderStroke(0.7.dp, glass.divider), shape = pillShape),
+                                focusedBorder = Border(BorderStroke(1.2.dp, Color.White.copy(alpha = 0.85f)), shape = pillShape)
+                            ),
+                            scale = CardDefaults.scale(focusedScale = 1.02f),
+                            shape = CardDefaults.shape(shape = pillShape)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = chapterTitle,
+                                    color = fg,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = if (isFocused || isCurrent) FontWeight.Bold else FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f).padding(end = 10.dp)
+                                )
+                                Text(
+                                    text = ts,
+                                    color = fg.copy(alpha = 0.78f),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -4136,11 +4303,13 @@ private fun SpeedItem(
     isSelected: Boolean,
     accent: Color = Color(0xFFCFDCE8),
     accentContent: Color = Color(0xFF0A0C10),
+    unfocusedText: Color = Color.White,
+    unfocusedBg: Color = Color.White.copy(alpha = 0.08f),
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val pillShape = RoundedCornerShape(999.dp)
-    val fg = if (isFocused) accentContent else Color.White.copy(alpha = if (isSelected) 1f else 0.86f)
+    val fg = if (isFocused) accentContent else unfocusedText.copy(alpha = if (isSelected) 1f else 0.88f)
 
     Card(
         onClick = onClick,
@@ -4148,7 +4317,7 @@ private fun SpeedItem(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
-            containerColor = if (isSelected) accent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f),
+            containerColor = if (isSelected) accent.copy(alpha = 0.24f) else unfocusedBg,
             focusedContainerColor = accent.copy(alpha = 1f)
         ),
         border = CardDefaults.border(

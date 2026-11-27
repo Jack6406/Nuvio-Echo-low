@@ -388,15 +388,28 @@ fun NuvioLegacyTopLeftBadges(
                 }
                 val episodeRating = uiState.currentEpisodeImdbRating?.takeIf { it > 0.0 }
                 if (episodeRating != null) {
-                    Text(
-                        text = "★ ${String.format(java.util.Locale.US, "%.1f", episodeRating)}",
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.SemiBold
-                        ),
-                        color = Color(0xFFCFDCE8),
-                        maxLines = 1
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        AsyncImage(
+                            model = remember(context) {
+                                ImageRequest.Builder(context).data(R.raw.imdb_logo_2016).build()
+                            },
+                            contentDescription = "IMDb",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.width(24.dp).height(13.dp)
+                        )
+                        Text(
+                            text = String.format(java.util.Locale.US, "%.1f", episodeRating),
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = Color.White,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
             if (releaseYearOnly.isNotBlank()) {
