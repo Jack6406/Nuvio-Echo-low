@@ -58,6 +58,7 @@ class DebridSettingsDataStore @Inject constructor(
     private val streamPreferencesKey = stringPreferencesKey("stream_preferences")
     private val streamNameTemplateKey = stringPreferencesKey("debrid_stream_name_template")
     private val streamDescriptionTemplateKey = stringPreferencesKey("debrid_stream_description_template")
+    private val useOriginalStreamFormatKey = booleanPreferencesKey("debrid_use_original_stream_format")
 
     val settings: Flow<DebridSettings> = profileManager.activeProfileId.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.map { prefs ->
@@ -112,7 +113,8 @@ class DebridSettingsDataStore @Inject constructor(
                 streamNameTemplate = prefs[streamNameTemplateKey]
                     ?: DebridStreamFormatterDefaults.NAME_TEMPLATE,
                 streamDescriptionTemplate = prefs[streamDescriptionTemplateKey]
-                    ?: DebridStreamFormatterDefaults.DESCRIPTION_TEMPLATE
+                    ?: DebridStreamFormatterDefaults.DESCRIPTION_TEMPLATE,
+                useOriginalStreamFormat = prefs[useOriginalStreamFormatKey] ?: true
             )
         }
     }
@@ -269,6 +271,10 @@ class DebridSettingsDataStore @Inject constructor(
             it[streamNameTemplateKey] = nameTemplate
             it[streamDescriptionTemplateKey] = descriptionTemplate
         }
+    }
+
+    suspend fun setUseOriginalStreamFormat(enabled: Boolean) {
+        store().edit { it[useOriginalStreamFormatKey] = enabled }
     }
 
     suspend fun resetStreamTemplates() {

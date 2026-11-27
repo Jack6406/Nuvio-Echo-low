@@ -154,6 +154,10 @@ class DebridSettingsViewModel @Inject constructor(
         }
     }
 
+    fun setUseOriginalStreamFormat(enabled: Boolean) {
+        update { dataStore.setUseOriginalStreamFormat(enabled) }
+    }
+
     fun resetFormatterTemplates() {
         update { dataStore.resetStreamTemplates() }
     }
@@ -398,6 +402,7 @@ data class DebridSettingsUiState(
     val streamPreferences: DebridStreamPreferences = DebridStreamPreferences(),
     val streamNameTemplate: String = "",
     val streamDescriptionTemplate: String = "",
+    val useOriginalStreamFormat: Boolean = true,
     val isFormatterQrModeActive: Boolean = false,
     val formatterQrCodeBitmap: Bitmap? = null,
     val formatterServerUrl: String? = null,
@@ -463,7 +468,8 @@ data class DebridSettingsUiState(
         streamCodecFilter = settings.streamCodecFilter,
         streamPreferences = settings.streamPreferences,
         streamNameTemplate = settings.streamNameTemplate,
-        streamDescriptionTemplate = settings.streamDescriptionTemplate
+        streamDescriptionTemplate = settings.streamDescriptionTemplate,
+        useOriginalStreamFormat = settings.useOriginalStreamFormat
     )
 }
 

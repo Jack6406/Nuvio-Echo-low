@@ -20,7 +20,8 @@ data class DebridSettings(
     val streamCodecFilter: DebridStreamCodecFilter = DebridStreamCodecFilter.ANY,
     val streamPreferences: DebridStreamPreferences = DebridStreamPreferences(),
     val streamNameTemplate: String = DebridStreamFormatterDefaults.NAME_TEMPLATE,
-    val streamDescriptionTemplate: String = DebridStreamFormatterDefaults.DESCRIPTION_TEMPLATE
+    val streamDescriptionTemplate: String = DebridStreamFormatterDefaults.DESCRIPTION_TEMPLATE,
+    val useOriginalStreamFormat: Boolean = true
 ) {
     val hasAnyApiKey: Boolean
         get() = DebridProviders.configuredServices(this).isNotEmpty()

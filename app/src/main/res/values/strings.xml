@@ -1280,6 +1280,8 @@
     <string name="debrid_stream_release_groups_excluded">Excluded release groups</string>
     <string name="debrid_stream_release_groups_input_subtitle">Enter one group per line.</string>
 
+    <string name="debrid_formatter_original_title">Keep original addon format</string>
+    <string name="debrid_formatter_original_subtitle">Preserve the addon\'s stream formatting (e.g. AIOStreams) instead of rewriting it with the built-in template.</string>
     <string name="debrid_formatter_title">Web editor</string>
     <string name="debrid_formatter_subtitle">Configure source display, filters, and sorting from another device.</string>
     <string name="debrid_formatter_configure">Open web editor</string>

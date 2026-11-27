@@ -25,24 +25,76 @@ class DebridStreamFormatter @Inject constructor(
     ): Stream {
         if (!stream.isManagedDebridForFormatting()) return stream
         val matchedBadges = StreamBadgeMatcher.matchedBadges(stream, compiledBadgeFilters)
+        val effectiveBadges = if (matchedBadges.isNotEmpty()) matchedBadges else stream.badges
         val values = buildValues(stream, settings, matchedBadges)
-        val formattedName = engine.render(settings.streamNameTemplate, values)
-            .lineSequence()
+
+        val originalDescription = stream.description?.takeIf { it.isNotBlank() }
+            ?: stream.title?.takeIf { it.contains('\n') && it.isNotBlank() }
+
+        if (settings.useOriginalStreamFormat && originalDescription != null) {
+            val instantLabel = buildCompactInstantLabel(stream, values)
+            val preservedName = stream.name?.trim()?.takeIf { it.isNotBlank() }
+            val finalName = when {
+                preservedName != null && preservedName.contains("instant", ignoreCase = true) -> preservedName
+                instantLabel.isNotBlank() -> instantLabel
+                else -> preservedName ?: DebridProviders.instantName(serviceId(stream, stream.clientResolve))
+            }
+            return stream.copy(
+                name = finalName,
+                description = originalDescription,
+                badges = effectiveBadges
+            )
+        }
+
+        val formattedName = sanitizeFormattedName(
+            engine.render(settings.streamNameTemplate, values)
+        )
+        val formattedDescription = sanitizeFormattedDescription(
+            engine.render(settings.streamDescriptionTemplate, values)
+        )
+
+        val fallbackName = stream.name?.takeIf { it.isNotBlank() }
+            ?: buildCompactInstantLabel(stream, values).ifBlank {
+                DebridProviders.instantName(serviceId(stream, stream.clientResolve))
+            }
+
+        return stream.copy(
+            name = formattedName.ifBlank { fallbackName },
+            description = formattedDescription.ifBlank { originalDescription ?: stream.title },
+            badges = effectiveBadges
+        )
+    }
+
+    private fun buildCompactInstantLabel(stream: Stream, values: Map<String, Any?>): String {
+        val resolution = (values["stream.resolution"] as? String)?.trim().orEmpty()
+        val shortName = (values["service.shortName"] as? String)?.trim().orEmpty()
+            .ifBlank { DebridProviders.shortName(serviceId(stream, stream.clientResolve)) }
+            .ifBlank { "Debrid" }
+        return listOf(resolution, shortName, "Instant")
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+    }
+
+    private fun sanitizeFormattedName(raw: String): String {
+        val cleaned = raw.lineSequence()
             .joinToString(" ") { it.trim() }
             .replace(Regex("\\s+"), " ")
             .trim()
-        val formattedDescription = engine.render(settings.streamDescriptionTemplate, values)
-            .lineSequence()
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
+            .trim('•', '·', '|', '-', '/', '.', ',', ':', ';')
+            .trim()
+        return if (cleaned.any { it.isLetterOrDigit() }) cleaned else ""
+    }
+
+    private fun sanitizeFormattedDescription(raw: String): String {
+        return raw.lineSequence()
+            .map { line ->
+                line.trim()
+                    .trim('•', '·', '|', '-', '/', '.', ',', ':', ';')
+                    .trim()
+            }
+            .filter { line -> line.isNotBlank() && line.any { it.isLetterOrDigit() } }
             .joinToString("\n")
             .trim()
-
-        return stream.copy(
-            name = formattedName.ifBlank { stream.name ?: DebridProviders.instantName(stream.clientResolve?.service) },
-            description = formattedDescription.ifBlank { stream.description ?: stream.title },
-            badges = matchedBadges
-        )
     }
 
     private fun buildValues(

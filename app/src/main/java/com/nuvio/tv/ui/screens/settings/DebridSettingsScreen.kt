@@ -268,6 +268,16 @@ fun DebridSettingsContent(
                         SettingsSectionLabel(text = stringResource(R.string.debrid_section_formatting))
                     }
 
+                    item(key = "debrid_formatter_original") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.debrid_formatter_original_title),
+                            subtitle = stringResource(R.string.debrid_formatter_original_subtitle),
+                            checked = uiState.useOriginalStreamFormat,
+                            onToggle = { viewModel.setUseOriginalStreamFormat(!uiState.useOriginalStreamFormat) },
+                            enabled = uiState.enabled
+                        )
+                    }
+
                     item(key = "debrid_formatter") {
                         SettingsActionRow(
                             title = stringResource(R.string.debrid_formatter_title),

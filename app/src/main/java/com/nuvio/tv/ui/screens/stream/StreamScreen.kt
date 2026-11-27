@@ -1262,7 +1262,10 @@ private fun StreamCard(
     val unknownStreamLabel = stringResource(R.string.stream_unknown)
     val streamName = remember(stream, unknownStreamLabel) { stream.getDisplayNameOrNull() ?: unknownStreamLabel }
     val streamDescription = remember(stream) { stream.getDisplayDescription() }
-    val hasBadges = stream.badges.isNotEmpty() || (showFileSizeBadges && stream.behaviorHints?.videoSize != null) || reserveBadgeSpace
+    val effectiveFileSizeBytes = stream.behaviorHints?.videoSize
+        ?: stream.debridCacheStatus?.cachedSize
+        ?: stream.clientResolve?.stream?.raw?.size
+    val hasBadges = stream.badges.isNotEmpty() || (showFileSizeBadges && effectiveFileSizeBytes != null) || reserveBadgeSpace
     val cardShape = RoundedCornerShape(NuvioTheme.radii.md)
     val hasGradientFocusRing = NuvioTheme.palette.focusRingGradient.size > 1
 
@@ -1335,10 +1338,10 @@ private fun StreamCard(
                 verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.xs)
             ) {
                 if (hasBadges && badgePlacement == StreamBadgePlacement.TOP) {
-                    if (stream.badges.isNotEmpty() || (showFileSizeBadges && stream.behaviorHints?.videoSize != null)) {
+                    if (stream.badges.isNotEmpty() || (showFileSizeBadges && effectiveFileSizeBytes != null)) {
                         StreamBadgeChips(
                             badges = stream.badges,
-                            fileSizeBytes = stream.behaviorHints?.videoSize,
+                            fileSizeBytes = effectiveFileSizeBytes,
                             showFileSizeBadge = showFileSizeBadges,
                             animate = shouldAnimateBadges,
                             focused = isFocused
@@ -1372,10 +1375,10 @@ private fun StreamCard(
                 }
 
                 if (hasBadges && badgePlacement == StreamBadgePlacement.BOTTOM) {
-                    if (stream.badges.isNotEmpty() || (showFileSizeBadges && stream.behaviorHints?.videoSize != null)) {
+                    if (stream.badges.isNotEmpty() || (showFileSizeBadges && effectiveFileSizeBytes != null)) {
                         StreamBadgeChips(
                             badges = stream.badges,
-                            fileSizeBytes = stream.behaviorHints?.videoSize,
+                            fileSizeBytes = effectiveFileSizeBytes,
                             showFileSizeBadge = showFileSizeBadges,
                             animate = shouldAnimateBadges,
                             focused = isFocused,
