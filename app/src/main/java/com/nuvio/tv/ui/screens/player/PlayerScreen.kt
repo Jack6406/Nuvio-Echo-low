@@ -1610,7 +1610,7 @@ private fun PlayerScreenContent(
                     }
                 },
                 onShowChapters = {
-                    viewModel.onEvent(PlayerEvent.OnHideControls)
+                    viewModel.onEvent(PlayerEvent.OnDismissTransientOverlay)
                     showChaptersDialog = true
                 },
                 onOpenDetails = onOpenCurrentDetails?.let { openDetails ->
@@ -1618,7 +1618,7 @@ private fun PlayerScreenContent(
                         if (uiState.isPlaying) {
                             viewModel.onEvent(PlayerEvent.OnPlayPause)
                         }
-                        viewModel.onEvent(PlayerEvent.OnHideControls)
+                        viewModel.onEvent(PlayerEvent.OnDismissTransientOverlay)
                         openDetails()
                     }
                 },
@@ -4118,9 +4118,9 @@ private fun SpeedSelectionDialog(
 
 @Composable
 private fun ChaptersSelectionDialog(
-    chapters: List<com.nuvio.tv.core.player.seekpreview.MediaChapter>,
+    chapters: List<PlayerChapter>,
     currentPositionMs: Long,
-    onChapterSelected: (com.nuvio.tv.core.player.seekpreview.MediaChapter) -> Unit,
+    onChapterSelected: (PlayerChapter) -> Unit,
     onDismiss: () -> Unit
 ) {
     val accent = rememberPlayerAccentColor()

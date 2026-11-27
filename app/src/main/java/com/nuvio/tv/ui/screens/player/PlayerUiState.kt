@@ -58,6 +58,8 @@ sealed interface PostPlayMode {
     }
 }
 
+data class PlayerChapter(val startMs: Long, val title: String)
+
 data class PlayerUiState(
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = true,
@@ -68,7 +70,7 @@ data class PlayerUiState(
     val releaseYear: String? = null, // Release year for movies
     val movieLetterboxdRating: Double? = null, // Letterboxd rating for movies (via MDBList)
     val mdbListRatings: com.nuvio.tv.domain.model.MDBListRatings? = null,
-    val chapters: List<com.nuvio.tv.core.player.seekpreview.MediaChapter> = emptyList(),
+    val chapters: List<PlayerChapter> = emptyList(),
     val currentEpisodeImdbRating: Double? = null, // Current episode IMDb rating for TV series
     val contentType: String? = null,
     val currentStreamName: String? = null, // Name of the current stream source
